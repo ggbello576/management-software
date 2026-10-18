@@ -150,3 +150,11 @@ th {
     border-color: #234;
     color: white;
 }
+.prodotto-da-riordinare {
+    background-color: #fff1f0;
+}
+
+.prodotto-da-riordinare td:last-child {
+    color: #b42318;
+    font-weight: bold;
+}

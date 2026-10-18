@@ -21,7 +21,7 @@
     <section class="riepilogo">
         <article class="scheda-statistica">
         <h2>Prodotti da riordinare</h2>
-        <p>0</p>
+        <p id="conteggio-riordino">...</p>
         </article>
 
         <article class="scheda-statistica">
@@ -41,21 +41,21 @@
     </section>
 
     <nav class="navigazione">
-        <button type="button" class="pulsante-sezione">
-        Visualizza magazzino
-        </button>
+        <a href="/magazzino" class="pulsante-sezione">
+            Visualizza magazzino
+        </a>
 
-        <button type="button" class="pulsante-sezione">
+        <a href="/acquisti" class="pulsante-sezione">
         Acquisti Prodotti
-        </button>
+        </a>
 
-        <button type="button" class="pulsante-sezione">
+        <a href="/vendite" class="pulsante-sezione">
         Vendite Prodotti
-        </button>
+        </a>
 
-        <button type="button" class="pulsante-sezione">
+        <a href="/clienti" class="pulsante-sezione">
         Clienti
-        </button>
+        </a>
     </nav>
 
     <section class="movimenti">
@@ -92,5 +92,6 @@
     </section>
 
     </main>
+<script src="/app.js" defer></script>
 </body>
 </html>

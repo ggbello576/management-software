@@ -17,12 +17,33 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         "Content-Type": "text/css; charset=utf-8"});
         response.end(fs.readFileSync("style.css", "utf8"));
 
-    } else if (
-        request.method === "GET" &&//se il metodo è get
-        request.url === "/api/magazzino"//e il percorso è /api/magazzino
-        ) {//try in caso di qualsiasi errore
-            try {//mandi la query sql e dai await cosi aspetti che sql risponda
-                const risultato = await pool.query(`
+        }     
+        else if (
+            request.method === "GET" &&
+            request.url === "/app.js"
+        ) {
+            response.writeHead(200, {
+                "Content-Type": "text/javascript; charset=utf-8"
+            });
+
+            response.end(fs.readFileSync("app.js", "utf8"));
+
+        }   else if (
+            request.method === "GET" &&
+            request.url === "/magazzino"
+            ) {
+                response.writeHead(200, {
+                    "Content-Type": "text/html; charset=utf-8"
+                });
+
+                response.end(fs.readFileSync("magazzino.html", "utf8"));
+
+                }   else if (
+                request.method === "GET" &&//se il metodo è get
+                request.url === "/api/magazzino"//e il percorso è /api/magazzino
+                ) {//try in caso di qualsiasi errore
+                try {//mandi la query sql e dai await cosi aspetti che sql risponda
+                    const risultato = await pool.query(`
                     WITH movimenti_magazzino AS (
                         SELECT
                             prodotto_id,
@@ -81,10 +102,62 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
             }
 
+            } else if (
+        request.method === "GET" &&
+        request.url === "/acquisti"
+    ) {
+        response.writeHead(200, {
+            "Content-Type": "text/html; charset=utf-8"
+        });
+
+        response.end(fs.readFileSync("sezioneacquisti.html", "utf8"));
+
+    } else if (
+        request.method === "GET" &&
+        request.url === "/vendite"
+    ) {
+        response.writeHead(200, {
+            "Content-Type": "text/html; charset=utf-8"
+        });
+
+        response.end(fs.readFileSync("sezionevendite.html", "utf8"));
+
+        } else if (
+        request.method === "GET" &&
+        request.url === "/api/clienti"
+    ) {
+        try {
+            const risultato = await pool.query(`
+                SELECT id, nome, cognome, note, creata_il
+                FROM public.clienti
+                ORDER BY cognome, nome;
+            `);
+
+            response.writeHead(200, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            response.end(JSON.stringify(risultato.rows));
+        } catch (errore) {
+            console.error("Errore nel caricamento delle clienti:", errore);
+
+            response.writeHead(500, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            response.end(JSON.stringify({
+                errore: "Errore interno del server"
+            }));
         }
-    else if (request.method === "GET" && request.url === "/clienti") {//metodo get e percorso clienti
-    response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    response.end("Qui in futuro vedremo le clienti");
+    }else if (
+        request.method === "GET" &&
+        request.url === "/clienti"
+    ) {
+        response.writeHead(200, {
+            "Content-Type": "text/html; charset=utf-8"
+        });
+
+        response.end(fs.readFileSync("clienti.html", "utf8"));
 
     } else {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });//404 è il codice per "risorsa non trovata"     

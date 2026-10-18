@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clienti - Gestionale del salone</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <main class="contenitore">
+        <header class="intestazione">
+            <div>
+                <p class="soprattitolo">GESTIONALE DEL SALONE</p>
+                <h1>Clienti abituali</h1>
+                <a href="/">Torna alla panoramica</a>
+            </div>
+        </header>
+        <section class="modulo-cliente">
+    <h2>Aggiungi una cliente</h2>
+
+    <form id="form-cliente">
+        <label for="nome">Nome</label>
+        <input
+            type="text"
+            id="nome"
+            name="nome"
+            required
+        >
+
+        <label for="cognome">Cognome</label>
+        <input
+            type="text"
+            id="cognome"
+            name="cognome"
+            required
+        >
+
+        <label for="note">Note</label>
+        <textarea
+            id="note"
+            name="note"
+            rows="3"
+        ></textarea>
+
+        <button type="submit">Salva cliente</button>
+    </form>
+</section>
+
+        <section class="clienti">
+    <h2>Elenco clienti</h2>
+
+    <div class="tabella-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Nome</th>
+                    <th scope="col">Cognome</th>
+                    <th scope="col">Note</th>
+                    <th scope="col">Registrata il</th>
+                </tr>
+            </thead>
+
+            <tbody id="corpo-clienti">
+                <!-- JavaScript inserirà qui le clienti -->
+            </tbody>
+        </table>
+    </div>
+</section>
+    </main>
+    <script src="/app.js" defer></script>
+</body>
+</html>
