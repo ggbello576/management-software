@@ -8,18 +8,137 @@
 </head>
 
 <body>
-    <main class="contenitore">
-        <header class="intestazione">
+    <main class="pagina-vendite">
+        <header class="intestazione-vendite">
             <div>
                 <p class="soprattitolo">GESTIONALE DEL SALONE</p>
-                <h1>Vendite di prodotti e servizi</h1>
-                <a href="/">Torna alla panoramica</a>
+                <h1>Registra una vendita</h1>
+                <p class="descrizione-vendite">
+                    Seleziona una cliente, aggiungi i prodotti o i servizi e controlla il totale.
+                </p>
             </div>
+
+            <a class="link-home" href="/">← Torna alla panoramica</a>
         </header>
 
-        <section class="vendite">
-            <h2>Registro vendite</h2>
-        </section>
+        <form id="form-vendita" class="form-vendita">
+            <section class="scheda-vendita">
+                <div class="titolo-sezione-vendita">
+                    <span class="numero-sezione">1</span>
+                    <div>
+                        <h2>Cliente</h2>
+                        <p>Puoi lasciare il campo vuoto per una vendita senza cliente registrata.</p>
+                    </div>
+                </div>
+
+                <label for="cliente-vendita">Cliente abituale</label>
+                <select id="cliente-vendita" name="cliente">
+                    <option value="">Nessuna cliente selezionata</option>
+                </select>
+            </section>
+
+            <section class="scheda-vendita">
+                <div class="titolo-sezione-vendita">
+                    <span class="numero-sezione">2</span>
+                    <div>
+                        <h2>Aggiungi un elemento</h2>
+                        <p>Scegli un prodotto o un servizio, poi indica la quantità.</p>
+                    </div>
+                </div>
+
+                <fieldset class="selettore-vendita">
+                    <legend>Nuova riga</legend>
+
+                    <div class="campi-vendita">
+                        <div class="campo-vendita">
+                            <label for="tipo-elemento">Tipo</label>
+                            <select id="tipo-elemento">
+                                <option value="prodotto">Prodotto</option>
+                                <option value="servizio">Servizio</option>
+                            </select>
+                        </div>
+
+                        <div class="campo-vendita">
+                            <label for="elemento-vendita">Prodotto o servizio</label>
+                            <select id="elemento-vendita" disabled>
+                                <option value="">Caricamento elenco…</option>
+                            </select>
+                        </div>
+
+                        <div class="campo-vendita">
+                            <label for="quantita-vendita">Quantità</label>
+                            <input
+                                type="number"
+                                id="quantita-vendita"
+                                min="1"
+                                step="1"
+                                value="1"
+                            >
+                        </div>
+                    </div>
+
+                    <button type="button" id="aggiungi-riga" class="pulsante-secondario">
+                        Aggiungi alla vendita
+                    </button>
+                </fieldset>
+            </section>
+
+            <section class="scheda-vendita">
+                <div class="titolo-sezione-vendita">
+                    <span class="numero-sezione">3</span>
+                    <div>
+                        <h2>Riepilogo</h2>
+                        <p>Qui compariranno gli elementi aggiunti alla vendita.</p>
+                    </div>
+                </div>
+
+                <div class="tabella-vendita-scroll">
+                    <table class="tabella-vendita">
+                        <thead>
+                            <tr>
+                                <th scope="col">Tipo</th>
+                                <th scope="col">Elemento</th>
+                                <th scope="col">Quantità</th>
+                                <th scope="col">Prezzo unitario</th>
+                                <th scope="col">Subtotale</th>
+                                <th scope="col">Azione</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="corpo-righe-vendita">
+                            <tr>
+                                <td colspan="6" class="tabella-vuota">
+                                    Aggiungi almeno un prodotto o servizio.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="totale-vendita">
+                    <span>Totale vendita</span>
+                    <strong id="totale-vendita">0,00 €</strong>
+                </div>
+            </section>
+
+            <section class="scheda-vendita">
+                <label for="note-vendita">Note sulla vendita</label>
+                <textarea
+                    id="note-vendita"
+                    name="note"
+                    rows="3"
+                    placeholder="Facoltative"
+                ></textarea>
+
+                <p id="messaggio-vendita" aria-live="polite"></p>
+
+                <button type="submit" class="pulsante-salva">
+                    Salva vendita
+                </button>
+            </section>
+        </form>
     </main>
+
+    <script src="/app.js" defer></script>
 </body>
 </html>

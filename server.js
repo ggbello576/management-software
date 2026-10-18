@@ -122,7 +122,35 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
         response.end(fs.readFileSync("sezionevendite.html", "utf8"));
 
-        } else if (
+        }    else if (
+        request.method === "GET" &&
+        request.url === "/api/servizi"
+    ) {
+        try {
+            const risultato = await pool.query(`
+                SELECT id, nome, prezzo
+                FROM public.servizi
+                WHERE attivo = TRUE
+                ORDER BY nome;
+            `);
+
+            response.writeHead(200, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            response.end(JSON.stringify(risultato.rows));
+        } catch (errore) {
+            console.error("Errore nel caricamento dei servizi:", errore);
+
+            response.writeHead(500, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            response.end(JSON.stringify({
+                errore: "Errore interno del server."
+            }));
+        }
+    }   else if (
         request.method === "GET" &&
         request.url === "/api/clienti"
     ) {
@@ -147,6 +175,80 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
             response.end(JSON.stringify({
                 errore: "Errore interno del server"
+            }));
+        }
+        } else if (
+        request.method === "POST" &&
+        request.url === "/api/clienti"
+    ) {
+        let dati;
+
+        // Legge il corpo della richiesta inviato dal browser
+        try {
+            let corpo = "";
+
+            for await (const pezzo of request) {
+                corpo += pezzo;
+            }
+
+            dati = JSON.parse(corpo);
+        } catch (errore) {
+            response.writeHead(400, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            response.end(JSON.stringify({
+                errore: "Il contenuto inviato non è un JSON valido."
+            }));
+            return;
+        }
+
+        // Controlla che i dati obbligatori siano presenti
+        const nome =
+            typeof dati.nome === "string" ? dati.nome.trim() : "";
+
+        const cognome =
+            typeof dati.cognome === "string" ? dati.cognome.trim() : "";
+
+        const note =
+            typeof dati.note === "string" ? dati.note.trim() : "";
+
+        if (nome === "" || cognome === "") {
+            response.writeHead(400, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            response.end(JSON.stringify({
+                errore: "Nome e cognome sono obbligatori."
+            }));
+            return;
+        }
+
+        // Inserisce la cliente nel database
+        try {
+            const risultato = await pool.query(
+                `
+                    INSERT INTO public.clienti (nome, cognome, note)
+                    VALUES ($1, $2, $3)
+                    RETURNING id, nome, cognome, note, creata_il;
+                `,
+                [nome, cognome, note || null]
+            );
+
+            response.writeHead(201, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            response.end(JSON.stringify(risultato.rows[0]));
+        } catch (errore) {
+            console.error("Errore nel salvataggio della cliente:", errore);
+
+            response.writeHead(500, {
+                "Content-Type": "application/json; charset=utf-8"
+            });
+
+            response.end(JSON.stringify({
+                errore: "Errore interno del server."
             }));
         }
     }else if (

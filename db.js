@@ -1,4 +1,6 @@
 //file per far comunicare js con PostgreSQL    PG
+//STIAMO PRENDENDO LE INFORMAZIONI DAL FILE .ENV E LI PASSIAMO A PG, 
+//TRAMITE UN OGGETTO JS
 
 const { Pool } = require("pg"); //carica libreria PG
 //estrae la classe Pool, gestisce le connessioni al database e le usa 
