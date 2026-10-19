@@ -14,7 +14,8 @@ class ErroreRichiesta extends Error {
 
 function rispondiJson(response, stato, dati) {
     response.writeHead(stato, {
-        "Content-Type": "application/json; charset=utf-8"
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store, no-cache, must-revalidate"
     });
 
     response.end(JSON.stringify(dati));
@@ -286,7 +287,52 @@ function messaggioErroreDatabase(errore, messaggioGenerico) {
         return "Il ruolo del database non ha i permessi necessari per questa operazione.";
     }
 
+    if (errore.code === "23503") {
+        return "Non è possibile cancellare questo record perché è collegato a operazioni esistenti.";
+    }
+
     return messaggioGenerico;
+}
+
+async function eseguiTransazione(callback) {
+    const client = await pool.connect();
+    let transazioneAvviata = false;
+
+    try {
+        await client.query("BEGIN");
+        transazioneAvviata = true;
+
+        const risultato = await callback(client);
+
+        await client.query("COMMIT");
+        transazioneAvviata = false;
+
+        return risultato;
+    } catch (errore) {
+        if (transazioneAvviata) {
+            try {
+                await client.query("ROLLBACK");
+            } catch (erroreRollback) {
+                console.error("Errore nel rollback:", erroreRollback);
+            }
+        }
+
+        throw errore;
+    } finally {
+        client.release();
+    }
+}
+
+function rispondiErroreOperazione(response, errore, messaggioGenerico) {
+    if (errore instanceof ErroreRichiesta) {
+        rispondiJson(response, errore.stato, { errore: errore.message });
+        return;
+    }
+
+    console.error(messaggioGenerico, errore);
+    rispondiJson(response, 500, {
+        errore: messaggioErroreDatabase(errore, messaggioGenerico)
+    });
 }
 
 const server = http.createServer(async (request, response) => {//async cosi possiamo usare await ricordi?
@@ -308,7 +354,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             request.url === "/app.js"
         ) {
             response.writeHead(200, {
-                "Content-Type": "text/javascript; charset=utf-8"
+                "Content-Type": "text/javascript; charset=utf-8",
+                "Cache-Control": "no-store, no-cache, must-revalidate"
             });
 
             response.end(fs.readFileSync("app.js", "utf8"));
@@ -384,7 +431,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         prodotti.id,
                         prodotti.nome,
                         prodotti.marca,
-                        COALESCE(SUM(movimenti_magazzino.variazione), 0)::integer AS giacenza,
+                        GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza,
                         prodotti.soglia_riordino,
                         prodotti.prezzo_vendita
                     FROM prodotti
@@ -417,6 +464,35 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
             }
 
+            } else if (
+        request.method === "GET" &&
+        request.url === "/api/rettifiche-magazzino"
+    ) {
+        try {
+            const risultato = await pool.query(`
+                SELECT
+                    rettifiche_magazzino.id,
+                    rettifiche_magazzino.data_movimento,
+                    rettifiche_magazzino.quantita_variazione,
+                    rettifiche_magazzino.motivo,
+                    prodotti.nome AS prodotto,
+                    prodotti.marca
+                FROM public.rettifiche_magazzino AS rettifiche_magazzino
+                JOIN public.prodotti AS prodotti
+                    ON prodotti.id = rettifiche_magazzino.prodotto_id
+                ORDER BY
+                    rettifiche_magazzino.data_movimento DESC,
+                    rettifiche_magazzino.id DESC;
+            `);
+
+            rispondiJson(response, 200, risultato.rows);
+        } catch (errore) {
+            rispondiErroreOperazione(
+                response,
+                errore,
+                "Impossibile caricare le rettifiche di magazzino."
+            );
+        }
             } else if (
         request.method === "GET" &&
         request.url === "/api/movimenti-recenti"
@@ -549,7 +625,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     SELECT
                         prodotti.id,
                         prodotti.soglia_riordino,
-                        COALESCE(SUM(movimenti_magazzino.variazione), 0)::integer AS giacenza
+                        GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza
                     FROM public.prodotti AS prodotti
                     LEFT JOIN movimenti_magazzino
                         ON movimenti_magazzino.prodotto_id = prodotti.id
@@ -629,7 +705,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     prodotti.marca,
                     prodotti.prezzo_vendita,
                     prodotti.soglia_riordino,
-                    COALESCE(SUM(movimenti_magazzino.variazione), 0)::integer AS giacenza
+                    GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza
                 FROM public.prodotti AS prodotti
                 LEFT JOIN movimenti_magazzino
                     ON movimenti_magazzino.prodotto_id = prodotti.id
@@ -824,12 +900,27 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     COALESCE(
                         SUM(righe_acquisto.quantita * righe_acquisto.costo_unitario),
                         0
-                    ) AS totale
+                    ) AS totale,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'id', righe_acquisto.id,
+                                'prodottoId', righe_acquisto.prodotto_id,
+                                'prodotto', prodotti.nome,
+                                'quantita', righe_acquisto.quantita,
+                                'costoUnitario', righe_acquisto.costo_unitario
+                            )
+                            ORDER BY righe_acquisto.id
+                        ) FILTER (WHERE righe_acquisto.id IS NOT NULL),
+                        '[]'::json
+                    ) AS righe
                 FROM public.acquisti AS acquisti
                 JOIN public.fornitori AS fornitori
                     ON fornitori.id = acquisti.fornitore_id
                 LEFT JOIN public.righe_acquisto AS righe_acquisto
                     ON righe_acquisto.acquisto_id = acquisti.id
+                LEFT JOIN public.prodotti AS prodotti
+                    ON prodotti.id = righe_acquisto.prodotto_id
                 GROUP BY
                     acquisti.id,
                     acquisti.data_acquisto,
@@ -846,6 +937,67 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     "Impossibile caricare gli acquisti."
                 )
             });
+        }
+    } else if (
+        request.method === "GET" &&
+        request.url === "/api/vendite"
+    ) {
+        try {
+            const risultato = await pool.query(`
+                SELECT
+                    vendite.id,
+                    vendite.data_vendita,
+                    vendite.note,
+                    COALESCE(
+                        clienti.nome || ' ' || clienti.cognome,
+                        'Vendita senza cliente'
+                    ) AS cliente,
+                    COALESCE(
+                        SUM(righe_vendita.quantita * righe_vendita.prezzo_unitario),
+                        0
+                    ) AS totale,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'id', righe_vendita.id,
+                                'tipo', CASE
+                                    WHEN righe_vendita.prodotto_id IS NOT NULL
+                                        THEN 'prodotto'
+                                    ELSE 'servizio'
+                                END,
+                                'elemento', COALESCE(prodotti.nome, servizi.nome),
+                                'quantita', righe_vendita.quantita,
+                                'prezzoUnitario', righe_vendita.prezzo_unitario
+                            )
+                            ORDER BY righe_vendita.id
+                        ) FILTER (WHERE righe_vendita.id IS NOT NULL),
+                        '[]'::json
+                    ) AS righe
+                FROM public.vendite AS vendite
+                LEFT JOIN public.clienti AS clienti
+                    ON clienti.id = vendite.cliente_id
+                LEFT JOIN public.righe_vendita AS righe_vendita
+                    ON righe_vendita.vendita_id = vendite.id
+                LEFT JOIN public.prodotti AS prodotti
+                    ON prodotti.id = righe_vendita.prodotto_id
+                LEFT JOIN public.servizi AS servizi
+                    ON servizi.id = righe_vendita.servizio_id
+                GROUP BY
+                    vendite.id,
+                    vendite.data_vendita,
+                    vendite.note,
+                    clienti.nome,
+                    clienti.cognome
+                ORDER BY vendite.data_vendita DESC, vendite.id DESC;
+            `);
+
+            rispondiJson(response, 200, risultato.rows);
+        } catch (errore) {
+            rispondiErroreOperazione(
+                response,
+                errore,
+                "Impossibile caricare le vendite."
+            );
         }
     } else if (
         request.method === "POST" &&
@@ -1343,7 +1495,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                             WHERE prodotto_id IS NOT NULL
                         )
                         SELECT
-                            COALESCE(SUM(movimenti_magazzino.variazione), 0)::bigint AS giacenza
+                            GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::bigint AS giacenza
                         FROM prodotti
                         LEFT JOIN movimenti_magazzino
                             ON movimenti_magazzino.prodotto_id = prodotti.id
@@ -1457,6 +1609,383 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             if (client) {
                 client.release();
             }
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/vendite\/\d+$/.test(request.url)
+    ) {
+        const venditaId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(venditaId)) {
+            rispondiJson(response, 400, { errore: "L'ID della vendita non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const righe = await client.query(
+                    `DELETE FROM public.righe_vendita WHERE vendita_id = $1 RETURNING id;`,
+                    [venditaId]
+                );
+                const vendita = await client.query(
+                    `DELETE FROM public.vendite WHERE id = $1 RETURNING id;`,
+                    [venditaId]
+                );
+
+                if (vendita.rowCount === 0) {
+                    throw new ErroreRichiesta("La vendita richiesta non esiste.", 404);
+                }
+
+                return { id: venditaId, righeCancellate: righe.rowCount };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare la vendita.");
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/acquisti\/\d+$/.test(request.url)
+    ) {
+        const acquistoId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(acquistoId)) {
+            rispondiJson(response, 400, { errore: "L'ID dell'acquisto non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const acquistoEsistente = await client.query(
+                    `SELECT id FROM public.acquisti WHERE id = $1;`,
+                    [acquistoId]
+                );
+
+                if (acquistoEsistente.rowCount === 0) {
+                    throw new ErroreRichiesta("L'acquisto richiesto non esiste.", 404);
+                }
+
+                const righe = await client.query(
+                    `DELETE FROM public.righe_acquisto WHERE acquisto_id = $1 RETURNING id;`,
+                    [acquistoId]
+                );
+                const acquisto = await client.query(
+                    `DELETE FROM public.acquisti WHERE id = $1 RETURNING id;`,
+                    [acquistoId]
+                );
+
+                if (acquisto.rowCount === 0) {
+                    throw new ErroreRichiesta("L'acquisto richiesto non esiste più.", 404);
+                }
+
+                return { id: acquistoId, righeCancellate: righe.rowCount };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare l'acquisto.");
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/righe-vendita\/\d+$/.test(request.url)
+    ) {
+        const rigaId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(rigaId)) {
+            rispondiJson(response, 400, { errore: "L'ID della riga di vendita non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const riga = await client.query(
+                    `DELETE FROM public.righe_vendita WHERE id = $1 RETURNING vendita_id;`,
+                    [rigaId]
+                );
+
+                if (riga.rowCount === 0) {
+                    throw new ErroreRichiesta("La riga di vendita richiesta non esiste.", 404);
+                }
+
+                const venditaId = riga.rows[0].vendita_id;
+                const restanti = await client.query(
+                    `SELECT COUNT(*)::integer AS conteggio FROM public.righe_vendita WHERE vendita_id = $1;`,
+                    [venditaId]
+                );
+                let testataCancellata = false;
+
+                if (Number(restanti.rows[0].conteggio) === 0) {
+                    const vendita = await client.query(
+                        `DELETE FROM public.vendite WHERE id = $1 RETURNING id;`,
+                        [venditaId]
+                    );
+                    testataCancellata = vendita.rowCount === 1;
+                }
+
+                return { id: rigaId, venditaId, testataCancellata };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare la riga di vendita.");
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/righe-acquisto\/\d+$/.test(request.url)
+    ) {
+        const rigaId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(rigaId)) {
+            rispondiJson(response, 400, { errore: "L'ID della riga di acquisto non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const rigaDaRimuovere = await client.query(
+                    `
+                        SELECT id, acquisto_id, prodotto_id, quantita
+                        FROM public.righe_acquisto
+                        WHERE id = $1;
+                    `,
+                    [rigaId]
+                );
+
+                if (rigaDaRimuovere.rowCount === 0) {
+                    throw new ErroreRichiesta("La riga di acquisto richiesta non esiste.", 404);
+                }
+
+                const riga = rigaDaRimuovere.rows[0];
+                const acquistoId = riga.acquisto_id;
+
+                const cancellata = await client.query(
+                    `DELETE FROM public.righe_acquisto WHERE id = $1 RETURNING acquisto_id;`,
+                    [rigaId]
+                );
+
+                if (cancellata.rowCount === 0) {
+                    throw new ErroreRichiesta("La riga di acquisto richiesta non esiste più.", 404);
+                }
+
+                const restanti = await client.query(
+                    `SELECT COUNT(*)::integer AS conteggio FROM public.righe_acquisto WHERE acquisto_id = $1;`,
+                    [acquistoId]
+                );
+                let testataCancellata = false;
+
+                if (Number(restanti.rows[0].conteggio) === 0) {
+                    const acquisto = await client.query(
+                        `DELETE FROM public.acquisti WHERE id = $1 RETURNING id;`,
+                        [acquistoId]
+                    );
+                    testataCancellata = acquisto.rowCount === 1;
+                }
+
+                return { id: rigaId, acquistoId, testataCancellata };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare la riga di acquisto.");
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/prodotti\/\d+$/.test(request.url)
+    ) {
+        const prodottoId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(prodottoId)) {
+            rispondiJson(response, 400, { errore: "L'ID del prodotto non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const collegamenti = await client.query(
+                    `
+                        SELECT
+                            (SELECT COUNT(*) FROM public.righe_acquisto WHERE prodotto_id = $1)::integer AS acquisti,
+                            (SELECT COUNT(*) FROM public.righe_vendita WHERE prodotto_id = $1)::integer AS vendite,
+                            (SELECT COUNT(*) FROM public.rettifiche_magazzino WHERE prodotto_id = $1)::integer AS rettifiche;
+                    `,
+                    [prodottoId]
+                );
+                const collegamento = collegamenti.rows[0];
+
+                if (Number(collegamento.acquisti) > 0 || Number(collegamento.vendite) > 0 || Number(collegamento.rettifiche) > 0) {
+                    throw new ErroreRichiesta(
+                        `Il prodotto è collegato a ${collegamento.acquisti} acquisti, ${collegamento.vendite} vendite e ${collegamento.rettifiche} rettifiche: rimuovi prima le operazioni collegate.`,
+                        409
+                    );
+                }
+
+                const prodotto = await client.query(
+                    `DELETE FROM public.prodotti WHERE id = $1 RETURNING id;`,
+                    [prodottoId]
+                );
+
+                if (prodotto.rowCount === 0) {
+                    throw new ErroreRichiesta("Il prodotto richiesto non esiste.", 404);
+                }
+
+                return { id: prodottoId };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare il prodotto.");
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/servizi\/\d+$/.test(request.url)
+    ) {
+        const servizioId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(servizioId)) {
+            rispondiJson(response, 400, { errore: "L'ID del servizio non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const collegamenti = await client.query(
+                    `SELECT COUNT(*)::integer AS vendite FROM public.righe_vendita WHERE servizio_id = $1;`,
+                    [servizioId]
+                );
+
+                if (Number(collegamenti.rows[0].vendite) > 0) {
+                    throw new ErroreRichiesta(
+                        "Il servizio è collegato a vendite esistenti: rimuovi prima le righe di vendita collegate.",
+                        409
+                    );
+                }
+
+                const servizio = await client.query(
+                    `DELETE FROM public.servizi WHERE id = $1 RETURNING id;`,
+                    [servizioId]
+                );
+
+                if (servizio.rowCount === 0) {
+                    throw new ErroreRichiesta("Il servizio richiesto non esiste.", 404);
+                }
+
+                return { id: servizioId };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare il servizio.");
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/clienti\/\d+$/.test(request.url)
+    ) {
+        const clienteId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(clienteId)) {
+            rispondiJson(response, 400, { errore: "L'ID della cliente non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const collegamenti = await client.query(
+                    `SELECT COUNT(*)::integer AS vendite FROM public.vendite WHERE cliente_id = $1;`,
+                    [clienteId]
+                );
+
+                if (Number(collegamenti.rows[0].vendite) > 0) {
+                    throw new ErroreRichiesta(
+                        "La cliente è collegata a vendite esistenti: rimuovi prima le vendite collegate.",
+                        409
+                    );
+                }
+
+                const cliente = await client.query(
+                    `DELETE FROM public.clienti WHERE id = $1 RETURNING id;`,
+                    [clienteId]
+                );
+
+                if (cliente.rowCount === 0) {
+                    throw new ErroreRichiesta("La cliente richiesta non esiste.", 404);
+                }
+
+                return { id: clienteId };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare la cliente.");
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/fornitori\/\d+$/.test(request.url)
+    ) {
+        const fornitoreId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(fornitoreId)) {
+            rispondiJson(response, 400, { errore: "L'ID del fornitore non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const collegamenti = await client.query(
+                    `SELECT COUNT(*)::integer AS acquisti FROM public.acquisti WHERE fornitore_id = $1;`,
+                    [fornitoreId]
+                );
+
+                if (Number(collegamenti.rows[0].acquisti) > 0) {
+                    throw new ErroreRichiesta(
+                        "Il fornitore è collegato ad acquisti esistenti: rimuovi prima gli acquisti collegati.",
+                        409
+                    );
+                }
+
+                const fornitore = await client.query(
+                    `DELETE FROM public.fornitori WHERE id = $1 RETURNING id;`,
+                    [fornitoreId]
+                );
+
+                if (fornitore.rowCount === 0) {
+                    throw new ErroreRichiesta("Il fornitore richiesto non esiste.", 404);
+                }
+
+                return { id: fornitoreId };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare il fornitore.");
+        }
+    } else if (
+        request.method === "DELETE" &&
+        /^\/api\/rettifiche-magazzino\/\d+$/.test(request.url)
+    ) {
+        const rettificaId = Number(request.url.split("/").pop());
+
+        if (!idInteroValido(rettificaId)) {
+            rispondiJson(response, 400, { errore: "L'ID della rettifica non è valido." });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const rettifica = await client.query(
+                    `DELETE FROM public.rettifiche_magazzino WHERE id = $1 RETURNING id;`,
+                    [rettificaId]
+                );
+
+                if (rettifica.rowCount === 0) {
+                    throw new ErroreRichiesta("La rettifica richiesta non esiste.", 404);
+                }
+
+                return { id: rettificaId };
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile cancellare la rettifica.");
         }
     } else if (
         request.method === "GET" &&

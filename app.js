@@ -4,12 +4,20 @@ let serviziPerVendita = [];
 let righeVendita = [];
 let prodottiPerAcquisto = [];
 let righeAcquisto = [];
+
+function fetchDati(url, opzioni = {}) {
+    return fetch(url, {
+        cache: "no-store",
+        ...opzioni
+    });
+}
+
 async function caricaDatiMagazzino() {
     const corpoTabella = document.querySelector("#corpo-magazzino");
     const contatore = document.querySelector("#conteggio-riordino");
 
     try {
-        const risposta = await fetch("/api/magazzino");
+        const risposta = await fetchDati("/api/magazzino");
 
         if (!risposta.ok) {
             throw new Error(`Richiesta fallita: HTTP ${risposta.status}`);
@@ -100,12 +108,70 @@ async function caricaDatiMagazzino() {
     }
 }
 
+async function caricaRettificheMagazzino() {
+    const corpo = document.querySelector("#corpo-rettifiche-magazzino");
+
+    if (!corpo) {
+        return;
+    }
+
+    try {
+        const risposta = await fetchDati("/api/rettifiche-magazzino");
+        const risultato = await risposta.json().catch(() => ({}));
+
+        if (!risposta.ok) {
+            throw new Error(risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`);
+        }
+
+        corpo.replaceChildren();
+
+        if (risultato.length === 0) {
+            mostraErroreTabella("#corpo-rettifiche-magazzino", 5, "Non ci sono rettifiche registrate.");
+            return;
+        }
+
+        for (const rettifica of risultato) {
+            const riga = document.createElement("tr");
+            const valori = [
+                new Date(rettifica.data_movimento).toLocaleDateString("it-IT"),
+                rettifica.prodotto,
+                rettifica.quantita_variazione,
+                rettifica.motivo || "—"
+            ];
+
+            for (const valore of valori) {
+                const cella = document.createElement("td");
+                cella.textContent = valore ?? "";
+                riga.appendChild(cella);
+            }
+
+            const cellaAzione = document.createElement("td");
+            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+                await cancellaRisorsa(
+                    `/api/rettifiche-magazzino/${rettifica.id}`,
+                    `Vuoi cancellare definitivamente la rettifica di ${rettifica.quantita_variazione} unità per "${rettifica.prodotto}"? La giacenza verrà ricalcolata.`,
+                    null,
+                    async () => {
+                        await caricaDatiMagazzino();
+                        await caricaRettificheMagazzino();
+                    }
+                );
+            }));
+            riga.appendChild(cellaAzione);
+            corpo.appendChild(riga);
+        }
+    } catch (errore) {
+        console.error("Errore nel caricamento delle rettifiche:", errore);
+        mostraErroreTabella("#corpo-rettifiche-magazzino", 5, errore.message);
+    }
+}
+
 
 async function caricaClienti() {
     const corpoTabella = document.querySelector("#corpo-clienti");
 
     try {
-        const risposta = await fetch("/api/clienti");
+        const risposta = await fetchDati("/api/clienti");
 
         if (!risposta.ok) {
             throw new Error(`Richiesta fallita: HTTP ${risposta.status}`);
@@ -119,7 +185,7 @@ async function caricaClienti() {
             const riga = document.createElement("tr");
             const cella = document.createElement("td");
 
-            cella.colSpan = 5;
+            cella.colSpan = 6;
             cella.textContent = "Non ci sono clienti registrate.";
 
             riga.appendChild(cella);
@@ -152,6 +218,17 @@ async function caricaClienti() {
                 riga.appendChild(cella);
             }
 
+            const cellaAzione = document.createElement("td");
+            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+                await cancellaRisorsa(
+                    `/api/clienti/${cliente.id}`,
+                    `Vuoi cancellare definitivamente la cliente "${cliente.nome} ${cliente.cognome}"?`,
+                    document.querySelector("#messaggio-cancellazione-cliente"),
+                    caricaClienti
+                );
+            }));
+            riga.appendChild(cellaAzione);
+
             corpoTabella.appendChild(riga);
         }
     } catch (errore) {
@@ -162,7 +239,7 @@ async function caricaClienti() {
         const riga = document.createElement("tr");
         const cella = document.createElement("td");
 
-        cella.colSpan = 5;
+        cella.colSpan = 6;
         cella.textContent = "Impossibile caricare le clienti.";
 
         riga.appendChild(cella);
@@ -182,7 +259,7 @@ async function caricaRiepilogoPanoramica() {
     }
 
     try {
-        const risposta = await fetch("/api/dashboard");
+        const risposta = await fetchDati("/api/dashboard");
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -245,7 +322,7 @@ async function caricaMovimentiRecenti() {
     }
 
     try {
-        const risposta = await fetch("/api/movimenti-recenti");
+        const risposta = await fetchDati("/api/movimenti-recenti");
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -307,7 +384,7 @@ async function caricaDettaglioCliente() {
     const messaggio = document.querySelector("#messaggio-dettaglio-cliente");
 
     try {
-        const risposta = await fetch(`/api/clienti/${clienteId}`);
+        const risposta = await fetchDati(`/api/clienti/${clienteId}`);
         const risultato = await risposta.json().catch(() => ({}));
 
         if (!risposta.ok) {
@@ -391,7 +468,7 @@ async function gestisciFormCliente(evento) {
     };
 
     try {
-        const risposta = await fetch("/api/clienti", {
+        const risposta = await fetchDati("/api/clienti", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -450,12 +527,56 @@ function formattaEuro(valore) {
     }).format(Number(valore));
 }
 
+function creaPulsanteCancellazione(testo, gestore) {
+    const pulsante = document.createElement("button");
+    pulsante.type = "button";
+    pulsante.textContent = testo;
+    pulsante.className = "pulsante-tabella pulsante-cancella";
+    pulsante.addEventListener("click", gestore);
+    return pulsante;
+}
+
+async function cancellaRisorsa(url, testoConferma, messaggio, aggiorna) {
+    if (!window.confirm(testoConferma)) {
+        return false;
+    }
+
+    try {
+        const risposta = await fetchDati(url, { method: "DELETE" });
+        const risultato = await risposta.json().catch(() => ({}));
+
+        if (!risposta.ok) {
+            throw new Error(risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`);
+        }
+
+        if (messaggio) {
+            messaggio.textContent = "Cancellazione completata.";
+        }
+
+        if (aggiorna) {
+            await aggiorna(risultato);
+        }
+
+        return true;
+    } catch (errore) {
+        console.error("Errore nella cancellazione:", errore);
+
+        if (messaggio) {
+            messaggio.textContent = errore.message;
+        } else {
+            window.alert(errore.message);
+        }
+
+        return false;
+    }
+}
+
 async function caricaGestioneProdotti() {
     const corpo = document.querySelector("#corpo-prodotti");
     const messaggio = document.querySelector("#messaggio-prodotto");
 
     try {
-        const risposta = await fetch("/api/prodotti");
+        const risposta = await fetchDati("/api/prodotti");
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -470,7 +591,7 @@ async function caricaGestioneProdotti() {
         if (prodotti.length === 0) {
             mostraErroreTabella(
                 "#corpo-prodotti",
-                5,
+                6,
                 "Non ci sono prodotti registrati."
             );
             return;
@@ -492,13 +613,24 @@ async function caricaGestioneProdotti() {
                 riga.appendChild(cella);
             }
 
+            const cellaAzione = document.createElement("td");
+            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+                await cancellaRisorsa(
+                    `/api/prodotti/${prodotto.id}`,
+                    `Vuoi cancellare definitivamente il prodotto "${prodotto.nome}"? Puoi farlo solo se non è collegato a movimenti.`,
+                    messaggio,
+                    caricaGestioneProdotti
+                );
+            }));
+            riga.appendChild(cellaAzione);
+
             corpo.appendChild(riga);
         }
     } catch (errore) {
         console.error("Errore nel caricamento dei prodotti:", errore);
         mostraErroreTabella(
             "#corpo-prodotti",
-            5,
+            6,
             "Impossibile caricare i prodotti."
         );
 
@@ -521,7 +653,7 @@ async function gestisciFormProdotto(evento) {
     };
 
     try {
-        const risposta = await fetch("/api/prodotti", {
+        const risposta = await fetchDati("/api/prodotti", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -551,7 +683,7 @@ async function caricaGestioneServizi() {
     const messaggio = document.querySelector("#messaggio-servizio");
 
     try {
-        const risposta = await fetch("/api/servizi-gestione");
+        const risposta = await fetchDati("/api/servizi-gestione");
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -566,7 +698,7 @@ async function caricaGestioneServizi() {
         if (servizi.length === 0) {
             mostraErroreTabella(
                 "#corpo-servizi",
-                3,
+                4,
                 "Non ci sono servizi registrati."
             );
             return;
@@ -586,13 +718,24 @@ async function caricaGestioneServizi() {
                 riga.appendChild(cella);
             }
 
+            const cellaAzione = document.createElement("td");
+            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+                await cancellaRisorsa(
+                    `/api/servizi/${servizio.id}`,
+                    `Vuoi cancellare definitivamente il servizio "${servizio.nome}"? Puoi farlo solo se non è collegato a vendite.`,
+                    messaggio,
+                    caricaGestioneServizi
+                );
+            }));
+            riga.appendChild(cellaAzione);
+
             corpo.appendChild(riga);
         }
     } catch (errore) {
         console.error("Errore nel caricamento dei servizi:", errore);
         mostraErroreTabella(
             "#corpo-servizi",
-            3,
+            4,
             "Impossibile caricare i servizi."
         );
 
@@ -613,7 +756,7 @@ async function gestisciFormServizio(evento) {
     };
 
     try {
-        const risposta = await fetch("/api/servizi-gestione", {
+        const risposta = await fetchDati("/api/servizi-gestione", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -643,7 +786,7 @@ async function caricaGestioneFornitori() {
     const messaggio = document.querySelector("#messaggio-fornitore");
 
     try {
-        const risposta = await fetch("/api/fornitori");
+        const risposta = await fetchDati("/api/fornitori");
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -658,7 +801,7 @@ async function caricaGestioneFornitori() {
         if (fornitori.length === 0) {
             mostraErroreTabella(
                 "#corpo-fornitori",
-                5,
+                6,
                 "Non ci sono fornitori registrati."
             );
             return;
@@ -680,13 +823,24 @@ async function caricaGestioneFornitori() {
                 riga.appendChild(cella);
             }
 
+            const cellaAzione = document.createElement("td");
+            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+                await cancellaRisorsa(
+                    `/api/fornitori/${fornitore.id}`,
+                    `Vuoi cancellare definitivamente il fornitore "${fornitore.nome}"? Puoi farlo solo se non è collegato ad acquisti.`,
+                    messaggio,
+                    caricaGestioneFornitori
+                );
+            }));
+            riga.appendChild(cellaAzione);
+
             corpo.appendChild(riga);
         }
     } catch (errore) {
         console.error("Errore nel caricamento dei fornitori:", errore);
         mostraErroreTabella(
             "#corpo-fornitori",
-            5,
+            6,
             "Impossibile caricare i fornitori."
         );
 
@@ -709,7 +863,7 @@ async function gestisciFormFornitore(evento) {
     };
 
     try {
-        const risposta = await fetch("/api/fornitori", {
+        const risposta = await fetchDati("/api/fornitori", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -741,7 +895,7 @@ async function caricaFornitoriPerAcquisto() {
         return;
     }
 
-    const risposta = await fetch("/api/fornitori");
+    const risposta = await fetchDati("/api/fornitori");
 
     if (!risposta.ok) {
         const risultato = await risposta.json().catch(() => ({}));
@@ -768,7 +922,7 @@ async function caricaProdottiPerAcquisto() {
         return;
     }
 
-    const risposta = await fetch("/api/prodotti");
+    const risposta = await fetchDati("/api/prodotti");
 
     if (!risposta.ok) {
         const risultato = await risposta.json().catch(() => ({}));
@@ -919,7 +1073,7 @@ async function caricaElencoAcquisti() {
     }
 
     try {
-        const risposta = await fetch("/api/acquisti");
+        const risposta = await fetchDati("/api/acquisti");
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -934,7 +1088,7 @@ async function caricaElencoAcquisti() {
         if (acquisti.length === 0) {
             mostraErroreTabella(
                 "#corpo-acquisti",
-                3,
+                5,
                 "Non ci sono acquisti registrati."
             );
             return;
@@ -945,6 +1099,9 @@ async function caricaElencoAcquisti() {
             const valori = [
                 new Date(acquisto.data_acquisto).toLocaleDateString("it-IT"),
                 acquisto.fornitore,
+                acquisto.righe.map((rigaAcquisto) => {
+                    return `${rigaAcquisto.prodotto} × ${rigaAcquisto.quantita} (${formattaEuro(rigaAcquisto.costoUnitario)})`;
+                }).join(", ") || "—",
                 formattaEuro(acquisto.totale)
             ];
 
@@ -954,13 +1111,88 @@ async function caricaElencoAcquisti() {
                 riga.appendChild(cella);
             }
 
+            const cellaAzione = document.createElement("td");
+            const messaggio = document.querySelector("#messaggio-acquisto");
+
+            for (const rigaAcquisto of acquisto.righe) {
+                const pulsante = creaPulsanteCancellazione(`Riga ${rigaAcquisto.prodotto}`, async () => {
+                    await cancellaRisorsa(
+                        `/api/righe-acquisto/${rigaAcquisto.id}`,
+                        `Vuoi cancellare definitivamente la riga "${rigaAcquisto.prodotto}" (${rigaAcquisto.quantita} unità)? La giacenza verrà ricalcolata.`,
+                        messaggio,
+                        async (risultato) => {
+                            await caricaElencoAcquisti();
+                            await caricaProdottiPerAcquisto();
+                            if (risultato.testataCancellata && messaggio) {
+                                messaggio.textContent = "Era l'ultima riga: acquisto e riga cancellati.";
+                            }
+                        }
+                    );
+                });
+                cellaAzione.appendChild(pulsante);
+            }
+
+            const pulsanteAcquisto = creaPulsanteCancellazione("Cancella acquisto", async () => {
+                try {
+                    await caricaProdottiPerAcquisto();
+                } catch (errore) {
+                    const messaggio = document.querySelector("#messaggio-acquisto");
+                    if (messaggio) {
+                        messaggio.textContent = "Impossibile aggiornare le giacenze: ricarica la pagina e riprova.";
+                    }
+                    return;
+                }
+
+                const quantitaPerProdotto = new Map();
+
+                for (const rigaAcquisto of acquisto.righe) {
+                    const quantita = quantitaPerProdotto.get(Number(rigaAcquisto.prodottoId)) || 0;
+                    quantitaPerProdotto.set(
+                        Number(rigaAcquisto.prodottoId),
+                        quantita + Number(rigaAcquisto.quantita)
+                    );
+                }
+
+                const effetti = [];
+                for (const [prodottoId, quantita] of quantitaPerProdotto) {
+                    const prodotto = prodottiPerAcquisto.find((elemento) => {
+                        return Number(elemento.id) === prodottoId;
+                    });
+
+                    if (!prodotto) {
+                        if (messaggio) {
+                            messaggio.textContent = "Impossibile mostrare la giacenza aggiornata: ricarica i prodotti e riprova.";
+                        }
+                        return;
+                    }
+
+                    const giacenzaPrima = Number(prodotto.giacenza);
+                    const giacenzaDopoCalcolata = giacenzaPrima - quantita;
+                    const giacenzaDopo = Math.max(0, giacenzaDopoCalcolata);
+                    const avviso = giacenzaDopoCalcolata < 0 ? " — verrà impostata a 0" : "";
+                    effetti.push(`${prodotto.nome}: ${giacenzaPrima} → ${giacenzaDopo}${avviso}`);
+                }
+
+                await cancellaRisorsa(
+                    `/api/acquisti/${acquisto.id}`,
+                    `Cancellazione definitiva dell'acquisto del ${new Date(acquisto.data_acquisto).toLocaleDateString("it-IT")} da ${acquisto.fornitore}.\n\nEffetto sulla giacenza:\n- ${effetti.join("\n- ")}\n\nConfermi?`,
+                    messaggio,
+                    async () => {
+                        await caricaElencoAcquisti();
+                        await caricaProdottiPerAcquisto();
+                    }
+                );
+            });
+            cellaAzione.appendChild(pulsanteAcquisto);
+            riga.appendChild(cellaAzione);
+
             corpo.appendChild(riga);
         }
     } catch (errore) {
         console.error("Errore nel caricamento degli acquisti:", errore);
         mostraErroreTabella(
             "#corpo-acquisti",
-            3,
+            5,
             "Impossibile caricare gli acquisti."
         );
     }
@@ -1008,7 +1240,7 @@ async function gestisciFormAcquisto(evento) {
     };
 
     try {
-        const risposta = await fetch("/api/acquisti", {
+        const risposta = await fetchDati("/api/acquisti", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -1034,6 +1266,85 @@ async function gestisciFormAcquisto(evento) {
         messaggio.textContent = errore.message === "Failed to fetch"
             ? "Impossibile contattare il server."
             : errore.message;
+    }
+}
+
+async function caricaElencoVendite() {
+    const corpo = document.querySelector("#corpo-vendite");
+
+    if (!corpo) {
+        return;
+    }
+
+    try {
+        const risposta = await fetchDati("/api/vendite");
+        const risultato = await risposta.json().catch(() => ({}));
+
+        if (!risposta.ok) {
+            throw new Error(risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`);
+        }
+
+        corpo.replaceChildren();
+
+        if (risultato.length === 0) {
+            mostraErroreTabella("#corpo-vendite", 5, "Non ci sono vendite registrate.");
+            return;
+        }
+
+        for (const vendita of risultato) {
+            const riga = document.createElement("tr");
+            const valori = [
+                new Date(vendita.data_vendita).toLocaleDateString("it-IT"),
+                vendita.cliente || "Vendita senza cliente",
+                vendita.righe.map((rigaVendita) => {
+                    return `${rigaVendita.elemento} × ${rigaVendita.quantita} (${formattaEuro(rigaVendita.prezzoUnitario)})`;
+                }).join(", ") || "—",
+                formattaEuro(vendita.totale)
+            ];
+
+            for (const valore of valori) {
+                const cella = document.createElement("td");
+                cella.textContent = valore;
+                riga.appendChild(cella);
+            }
+
+            const cellaAzione = document.createElement("td");
+            const messaggio = document.querySelector("#messaggio-vendita");
+
+            for (const rigaVendita of vendita.righe) {
+                cellaAzione.appendChild(creaPulsanteCancellazione(`Riga ${rigaVendita.elemento}`, async () => {
+                    await cancellaRisorsa(
+                        `/api/righe-vendita/${rigaVendita.id}`,
+                        `Vuoi cancellare definitivamente la riga "${rigaVendita.elemento}" (${rigaVendita.quantita} unità)? La giacenza verrà ricalcolata se è un prodotto.`,
+                        messaggio,
+                        async (risultatoCancellazione) => {
+                            await caricaElencoVendite();
+                            await caricaDatiVendita();
+                            if (risultatoCancellazione.testataCancellata && messaggio) {
+                                messaggio.textContent = "Era l'ultima riga: vendita e riga cancellate.";
+                            }
+                        }
+                    );
+                }));
+            }
+
+            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella vendita", async () => {
+                await cancellaRisorsa(
+                    `/api/vendite/${vendita.id}`,
+                    `Vuoi cancellare definitivamente la vendita del ${new Date(vendita.data_vendita).toLocaleDateString("it-IT")}? Le righe saranno rimosse e la giacenza verrà ricalcolata.`,
+                    messaggio,
+                    async () => {
+                        await caricaElencoVendite();
+                        await caricaDatiVendita();
+                    }
+                );
+            }));
+            riga.appendChild(cellaAzione);
+            corpo.appendChild(riga);
+        }
+    } catch (errore) {
+        console.error("Errore nel caricamento delle vendite:", errore);
+        mostraErroreTabella("#corpo-vendite", 5, "Impossibile caricare le vendite.");
     }
 }
 
@@ -1119,9 +1430,9 @@ async function caricaDatiVendita() {
 
     try {
         const risposte = await Promise.all([
-            fetch("/api/clienti"),
-            fetch("/api/magazzino"),
-            fetch("/api/servizi")
+            fetchDati("/api/clienti"),
+            fetchDati("/api/magazzino"),
+            fetchDati("/api/servizi")
         ]);
 
         for (const risposta of risposte) {
@@ -1324,7 +1635,7 @@ async function gestisciFormVendita(evento) {
     };
 
     try {
-        const risposta = await fetch("/api/vendite", {
+        const risposta = await fetchDati("/api/vendite", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -1355,8 +1666,80 @@ async function gestisciFormVendita(evento) {
     }
 }
 
+async function aggiornaDatiPaginaVisibile() {
+    const aggiornamenti = [];
+
+    if (document.querySelector("#corpo-magazzino")) {
+        aggiornamenti.push(caricaDatiMagazzino());
+    }
+
+    if (document.querySelector("#corpo-rettifiche-magazzino")) {
+        aggiornamenti.push(caricaRettificheMagazzino());
+    }
+
+    if (document.querySelector("#conteggio-riordino")) {
+        aggiornamenti.push(caricaRiepilogoPanoramica());
+    }
+
+    if (document.querySelector("#corpo-movimenti")) {
+        aggiornamenti.push(caricaMovimentiRecenti());
+    }
+
+    if (document.querySelector("#corpo-clienti")) {
+        aggiornamenti.push(caricaClienti());
+    }
+
+    if (document.querySelector("#corpo-vendite-cliente")) {
+        aggiornamenti.push(caricaDettaglioCliente());
+    }
+
+    if (document.querySelector("#corpo-prodotti")) {
+        aggiornamenti.push(caricaGestioneProdotti());
+    }
+
+    if (document.querySelector("#corpo-servizi")) {
+        aggiornamenti.push(caricaGestioneServizi());
+    }
+
+    if (document.querySelector("#corpo-fornitori")) {
+        aggiornamenti.push(caricaGestioneFornitori());
+    }
+
+    if (document.querySelector("#form-acquisto")) {
+        aggiornamenti.push(caricaDatiAcquisto());
+    } else if (document.querySelector("#corpo-acquisti")) {
+        aggiornamenti.push(caricaElencoAcquisti());
+    }
+
+    if (document.querySelector("#form-vendita")) {
+        aggiornamenti.push(caricaDatiVendita());
+    }
+
+    if (document.querySelector("#corpo-vendite")) {
+        aggiornamenti.push(caricaElencoVendite());
+    }
+
+    await Promise.allSettled(aggiornamenti);
+}
+
+window.addEventListener("pageshow", (evento) => {
+    if (evento.persisted) {
+        aggiornaDatiPaginaVisibile();
+    }
+});
+
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+        aggiornaDatiPaginaVisibile();
+    }
+});
+
 if (document.querySelector("#corpo-magazzino")) {
     caricaDatiMagazzino();
+}
+
+if (document.querySelector("#corpo-rettifiche-magazzino")) {
+    caricaRettificheMagazzino();
 }
 
 if (document.querySelector("#conteggio-riordino")) {
@@ -1443,4 +1826,8 @@ if (formVendita) {
     formVendita.addEventListener("submit", gestisciFormVendita);
 
     caricaDatiVendita();
+}
+
+if (document.querySelector("#corpo-vendite")) {
+    caricaElencoVendite();
 }

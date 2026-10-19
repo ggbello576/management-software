@@ -137,6 +137,28 @@
                 </button>
             </section>
         </form>
+
+        <section class="scheda-vendita storico-vendite">
+            <h2>Vendite registrate</h2>
+            <div class="tabella-vendita-scroll">
+                <table class="tabella-vendita">
+                    <thead>
+                        <tr>
+                            <th scope="col">Data</th>
+                            <th scope="col">Cliente</th>
+                            <th scope="col">Righe</th>
+                            <th scope="col">Totale</th>
+                            <th scope="col">Azione</th>
+                        </tr>
+                    </thead>
+                    <tbody id="corpo-vendite">
+                        <tr>
+                            <td colspan="5" class="tabella-vuota">Caricamento vendite…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
     </main>
 
     <script src="/app.js" defer></script>

@@ -382,6 +382,21 @@ th {
     background: #f3f4f6;
 }
 
+.pulsante-cancella {
+    margin: 2px;
+    border-color: #f1b8b5;
+    background: #fff5f4;
+    color: #b42318;
+}
+
+.pulsante-cancella:hover {
+    background: #ffe4e1;
+}
+
+.storico-vendite {
+    margin-top: 20px;
+}
+
 .pagina-vendite {
     max-width: 1100px;
     margin: 40px auto;
