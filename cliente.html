@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dettaglio cliente - Gestionale del salone</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <main class="contenitore pagina-gestione">
+        <header class="intestazione">
+            <div>
+                <p class="soprattitolo">GESTIONALE DEL SALONE</p>
+                <h1 id="titolo-cliente">Dettaglio cliente</h1>
+                <p class="descrizione-gestione">Dati personali e storico delle vendite.</p>
+            </div>
+
+            <a class="link-home" href="/clienti">Torna ai clienti</a>
+        </header>
+
+        <section class="scheda-gestione scheda-cliente-dettaglio">
+            <h2>Dati personali</h2>
+            <dl class="dati-cliente">
+                <div>
+                    <dt>Nome e cognome</dt>
+                    <dd id="dettaglio-nome">—</dd>
+                </div>
+                <div>
+                    <dt>Telefono</dt>
+                    <dd id="dettaglio-telefono">—</dd>
+                </div>
+                <div>
+                    <dt>Note</dt>
+                    <dd id="dettaglio-note">—</dd>
+                </div>
+                <div>
+                    <dt>Registrata il</dt>
+                    <dd id="dettaglio-creata">—</dd>
+                </div>
+            </dl>
+        </section>
+
+        <section class="scheda-gestione">
+            <h2>Vendite associate</h2>
+            <div class="tabella-gestione-scroll">
+                <table class="tabella-gestione">
+                    <thead>
+                        <tr>
+                            <th scope="col">Data</th>
+                            <th scope="col">Elementi</th>
+                            <th scope="col">Note vendita</th>
+                            <th scope="col">Totale</th>
+                        </tr>
+                    </thead>
+                    <tbody id="corpo-vendite-cliente">
+                        <tr>
+                            <td colspan="4" class="tabella-vuota">Caricamento vendite…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <p id="messaggio-dettaglio-cliente" class="messaggio-gestione" aria-live="polite"></p>
+    </main>
+
+    <script src="/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestione prodotti - Gestionale del salone</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <main class="contenitore pagina-gestione">
+        <header class="intestazione">
+            <div>
+                <p class="soprattitolo">GESTIONALE DEL SALONE</p>
+                <h1>Gestione prodotti</h1>
+                <p class="descrizione-gestione">
+                    Registra i prodotti del catalogo e controlla la giacenza calcolata dal magazzino.
+                </p>
+            </div>
+
+            <a class="link-home" href="/">Torna alla panoramica</a>
+        </header>
+
+        <section class="scheda-gestione">
+            <h2>Registra un prodotto</h2>
+            <p class="testo-secondario">
+                Il prezzo di acquisto viene registrato nella gestione degli acquisti.
+            </p>
+
+            <form id="form-prodotto" class="form-gestione">
+                <div class="campi-gestione">
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="nome-prodotto">Nome</label>
+                        <input type="text" id="nome-prodotto" name="nome" required>
+                    </div>
+
+                    <div class="campo-gestione">
+                        <label for="marca-prodotto">Marca</label>
+                        <input type="text" id="marca-prodotto" name="marca">
+                    </div>
+
+                    <div class="campo-gestione">
+                        <label for="prezzo-vendita-prodotto">Prezzo di vendita</label>
+                        <input
+                            type="number"
+                            id="prezzo-vendita-prodotto"
+                            name="prezzoVendita"
+                            min="0"
+                            step="0.01"
+                            required
+                        >
+                    </div>
+
+                    <div class="campo-gestione">
+                        <label for="soglia-riordino-prodotto">Soglia di riordino</label>
+                        <input
+                            type="number"
+                            id="soglia-riordino-prodotto"
+                            name="sogliaRiordino"
+                            min="0"
+                            step="1"
+                            value="0"
+                            required
+                        >
+                    </div>
+                </div>
+
+                <button type="submit" class="pulsante-salva">Salva prodotto</button>
+            </form>
+
+            <p id="messaggio-prodotto" class="messaggio-gestione" aria-live="polite"></p>
+        </section>
+
+        <section class="scheda-gestione">
+            <h2>Prodotti presenti</h2>
+
+            <div class="tabella-gestione-scroll">
+                <table class="tabella-gestione">
+                    <thead>
+                        <tr>
+                            <th scope="col">Nome</th>
+                            <th scope="col">Marca</th>
+                            <th scope="col">Prezzo di vendita</th>
+                            <th scope="col">Soglia di riordino</th>
+                            <th scope="col">Giacenza</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="corpo-prodotti">
+                        <tr>
+                            <td colspan="5" class="tabella-vuota">Caricamento prodotti…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+</body>
+</html>

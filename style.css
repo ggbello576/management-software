@@ -84,6 +84,32 @@ p {
     font-weight: bold;
 }
 
+.scheda-statistica-riordino {
+    border-color: #f1b8b5;
+}
+
+.scheda-statistica-riordino p {
+    color: #b42318;
+}
+
+.scheda-statistica-vendite {
+    border-color: #a8d5bd;
+    background-color: #f0faf4;
+}
+
+.scheda-statistica-vendite p {
+    color: #18794e;
+}
+
+.scheda-statistica-acquisti {
+    border-color: #f1b8b5;
+    background-color: #fff5f4;
+}
+
+.scheda-statistica-acquisti p {
+    color: #b42318;
+}
+
 @media (max-width: 900px) {
     .riepilogo {
     grid-template-columns: repeat(2, 1fr);
@@ -125,9 +151,19 @@ th {
     font-size: 13px;
 }
 
+.movimento-vendita td {
+    background-color: #f0faf4;
+    color: #166534;
+}
+
+.movimento-acquisto td {
+    background-color: #fff5f4;
+    color: #b42318;
+}
+
 .navigazione {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 12px;
     margin: 24px 0 32px;
     padding-bottom: 20px;
@@ -157,6 +193,193 @@ th {
 .prodotto-da-riordinare td:last-child {
     color: #b42318;
     font-weight: bold;
+}
+
+.pagina-gestione {
+    margin-top: 40px;
+    margin-bottom: 40px;
+}
+
+.pagina-gestione .intestazione {
+    margin-bottom: 28px;
+}
+
+.descrizione-gestione,
+.testo-secondario {
+    color: #657184;
+}
+
+.scheda-gestione {
+    margin-top: 20px;
+    padding: 24px;
+    background: #fff;
+    border: 1px solid #e1e6eb;
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgb(28 39  cinquanta / 5%);
+}
+
+.scheda-gestione h2 {
+    margin-top: 0;
+    color: #202936;
+}
+
+.testo-secondario {
+    margin-top: -6px;
+}
+
+.form-gestione {
+    display: grid;
+    gap: 18px;
+}
+
+.campi-gestione {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+}
+
+.campo-gestione-largo {
+    grid-column: span 2;
+}
+
+.campo-gestione label {
+    display: block;
+    margin-bottom: 7px;
+    font-weight: 600;
+}
+
+.campo-gestione input,
+.campo-gestione select,
+.campo-gestione textarea {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid #cbd3dc;
+    border-radius: 7px;
+    background: #fff;
+    color: #202936;
+    font: inherit;
+}
+
+.campo-gestione input:focus,
+.campo-gestione select:focus,
+.campo-gestione textarea:focus {
+    outline: 3px solid rgb(49 92 80 / 16%);
+    border-color: #315c50;
+}
+
+.campo-gestione textarea {
+    resize: vertical;
+}
+
+.form-gestione .pulsante-salva {
+    margin-top: 0;
+}
+
+.messaggio-gestione {
+    min-height: 24px;
+    margin-bottom: 0;
+    color: #315c50;
+}
+
+.tabella-gestione-scroll {
+    overflow-x: auto;
+}
+
+.tabella-gestione {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.tabella-gestione th,
+.tabella-gestione td {
+    padding: 13px 12px;
+    border-bottom: 1px solid #e8edf1;
+}
+
+.tabella-gestione th {
+    color: #657184;
+    font-size: 0.9rem;
+}
+
+.link-cliente {
+    color: #315c50;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.link-cliente:hover {
+    text-decoration: underline;
+}
+
+.dati-cliente {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin: 0;
+}
+
+.dati-cliente div {
+    padding: 16px;
+    border: 1px solid #e1e6eb;
+    border-radius: 9px;
+    background: #f8faf9;
+}
+
+.dati-cliente dt {
+    margin-bottom: 7px;
+    color: #657184;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.dati-cliente dd {
+    margin: 0;
+    color: #202936;
+}
+
+.collegamento-gestione {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.collegamento-gestione a {
+    color: #315c50;
+    font-weight: 600;
+}
+
+.selettore-acquisto {
+    margin: 0;
+    padding: 18px;
+    border: 1px solid #e1e6eb;
+    border-radius: 9px;
+}
+
+.selettore-acquisto legend {
+    padding: 0 7px;
+    font-weight: 600;
+}
+
+.campi-acquisto {
+    display: grid;
+    grid-template-columns: 2fr 130px 160px;
+    gap: 16px;
+}
+
+.pulsante-tabella {
+    padding: 7px 10px;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    background: #fff;
+    color: #344054;
+    font: inherit;
+    cursor: pointer;
+}
+
+.pulsante-tabella:hover {
+    background: #f3f4f6;
 }
 
 .pagina-vendite {
@@ -347,6 +570,14 @@ th {
 }
 
 @media (max-width: 700px) {
+    .campi-gestione {
+        grid-template-columns: 1fr;
+    }
+
+    .campo-gestione-largo {
+        grid-column: auto;
+    }
+
     .pagina-vendite {
         margin-top: 24px;
         padding-right: 16px;
@@ -363,6 +594,32 @@ th {
     }
 
     .campi-vendita {
+        grid-template-columns: 1fr;
+    }
+
+    .campi-acquisto {
+        grid-template-columns: 1fr;
+    }
+
+    .dati-cliente {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (min-width: 701px) and (max-width: 900px) {
+    .dati-cliente {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 900px) {
+    .navigazione {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 650px) {
+    .navigazione {
         grid-template-columns: 1fr;
     }
 }

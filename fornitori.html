@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fornitori - Gestionale del salone</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <main class="contenitore pagina-gestione">
+        <header class="intestazione">
+            <div>
+                <p class="soprattitolo">GESTIONALE DEL SALONE</p>
+                <h1>Fornitori</h1>
+                <p class="descrizione-gestione">
+                    Registra e consulta i fornitori degli acquisti.
+                </p>
+            </div>
+
+            <a class="link-home" href="/">Torna alla panoramica</a>
+        </header>
+
+        <section class="scheda-gestione">
+            <h2>Registra un fornitore</h2>
+
+            <form id="form-fornitore" class="form-gestione">
+                <div class="campi-gestione">
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="nome-fornitore">Nome</label>
+                        <input type="text" id="nome-fornitore" name="nome" required>
+                    </div>
+
+                    <div class="campo-gestione">
+                        <label for="telefono-fornitore">Telefono</label>
+                        <input type="text" id="telefono-fornitore" name="telefono">
+                    </div>
+
+                    <div class="campo-gestione">
+                        <label for="email-fornitore">Email</label>
+                        <input type="email" id="email-fornitore" name="email">
+                    </div>
+
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="note-fornitore">Note</label>
+                        <textarea id="note-fornitore" name="note" rows="3"></textarea>
+                    </div>
+                </div>
+
+                <button type="submit" class="pulsante-salva">Salva fornitore</button>
+            </form>
+
+            <p id="messaggio-fornitore" class="messaggio-gestione" aria-live="polite"></p>
+        </section>
+
+        <section class="scheda-gestione">
+            <h2>Fornitori presenti</h2>
+
+            <div class="tabella-gestione-scroll">
+                <table class="tabella-gestione">
+                    <thead>
+                        <tr>
+                            <th scope="col">Nome</th>
+                            <th scope="col">Telefono</th>
+                            <th scope="col">Email</th>
+                            <th scope="col">Note</th>
+                            <th scope="col">Registrato il</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="corpo-fornitori">
+                        <tr>
+                            <td colspan="5" class="tabella-vuota">Caricamento fornitori…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+</body>
+</html>

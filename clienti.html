@@ -8,65 +8,75 @@
 </head>
 
 <body>
-    <main class="contenitore">
+    <main class="contenitore pagina-gestione">
         <header class="intestazione">
             <div>
                 <p class="soprattitolo">GESTIONALE DEL SALONE</p>
                 <h1>Clienti abituali</h1>
-                <a href="/">Torna alla panoramica</a>
+                <p class="descrizione-gestione">
+                    Conserva i dati essenziali delle clienti e consulta rapidamente le vendite associate.
+                </p>
             </div>
+
+            <a class="link-home" href="/">Torna alla panoramica</a>
         </header>
-        <section class="modulo-cliente">
-    <h2>Aggiungi una cliente</h2>
 
-    <form id="form-cliente">
-        <label for="nome">Nome</label>
-        <input
-            type="text"
-            id="nome"
-            name="nome"
-            required
-        >
+        <section class="scheda-gestione">
+            <h2>Aggiungi una cliente</h2>
 
-        <label for="cognome">Cognome</label>
-        <input
-            type="text"
-            id="cognome"
-            name="cognome"
-            required
-        >
+            <form id="form-cliente" class="form-gestione">
+                <div class="campi-gestione">
+                    <div class="campo-gestione">
+                        <label for="nome">Nome</label>
+                        <input type="text" id="nome" name="nome" required>
+                    </div>
 
-        <label for="note">Note</label>
-        <textarea
-            id="note"
-            name="note"
-            rows="3"
-        ></textarea>
+                    <div class="campo-gestione">
+                        <label for="cognome">Cognome</label>
+                        <input type="text" id="cognome" name="cognome" required>
+                    </div>
 
-        <button type="submit">Salva cliente</button>
-    </form>
-</section>
+                    <div class="campo-gestione">
+                        <label for="telefono-cliente">Telefono</label>
+                        <input type="tel" id="telefono-cliente" name="telefono">
+                    </div>
 
-        <section class="clienti">
-    <h2>Elenco clienti</h2>
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="note">Note</label>
+                        <textarea id="note" name="note" rows="3"></textarea>
+                    </div>
+                </div>
 
-    <div class="tabella-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th scope="col">Nome</th>
-                    <th scope="col">Cognome</th>
-                    <th scope="col">Note</th>
-                    <th scope="col">Registrata il</th>
-                </tr>
-            </thead>
+                <button type="submit" class="pulsante-salva">Salva cliente</button>
+            </form>
 
-            <tbody id="corpo-clienti">
-                <!-- JavaScript inserirà qui le clienti -->
-            </tbody>
-        </table>
-    </div>
-</section>
+            <p id="messaggio-cliente" class="messaggio-gestione" aria-live="polite"></p>
+        </section>
+
+        <section class="scheda-gestione">
+            <h2>Elenco clienti</h2>
+            <p class="testo-secondario">Clicca su una cliente per vedere i suoi dati e lo storico delle vendite.</p>
+
+            <div class="tabella-gestione-scroll">
+                <table class="tabella-gestione">
+                    <thead>
+                        <tr>
+                            <th scope="col">Nome</th>
+                            <th scope="col">Cognome</th>
+                            <th scope="col">Telefono</th>
+                            <th scope="col">Note</th>
+                            <th scope="col">Registrata il</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="corpo-clienti">
+                        <tr>
+                            <td colspan="5" class="tabella-vuota">Caricamento clienti…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
     </main>
     <script src="/app.js" defer></script>
 </body>

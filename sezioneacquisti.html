@@ -13,13 +13,125 @@
             <div>
                 <p class="soprattitolo">GESTIONALE DEL SALONE</p>
                 <h1>Acquisti da fornitori</h1>
+                <p class="descrizione-gestione">
+                    Registra gli arrivi di prodotti e aggiorna la giacenza attraverso i movimenti di magazzino.
+                </p>
                 <a href="/">Torna alla panoramica</a>
             </div>
         </header>
 
-        <section class="acquisti">
-            <h2>Registro acquisti</h2>
+        <section class="scheda-gestione">
+            <h2>Registra un acquisto</h2>
+            <p class="testo-secondario">
+                Il costo unitario viene salvato nelle righe dell'acquisto e contribuisce al totale dello storico.
+            </p>
+
+            <form id="form-acquisto" class="form-gestione">
+                <div class="campi-gestione">
+                    <div class="campo-gestione">
+                        <label for="fornitore-acquisto">Fornitore</label>
+                        <select id="fornitore-acquisto" name="fornitoreId" required>
+                            <option value="">Caricamento fornitori…</option>
+                        </select>
+                    </div>
+
+                    <div class="campo-gestione">
+                        <label for="data-acquisto">Data</label>
+                        <input type="date" id="data-acquisto" name="dataAcquisto">
+                    </div>
+
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="note-acquisto">Note</label>
+                        <textarea id="note-acquisto" name="note" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="collegamento-gestione">
+                    <a href="/fornitori" target="_blank" rel="noopener">Aggiungi o gestisci un fornitore</a>
+                    <button type="button" id="aggiorna-fornitori" class="pulsante-secondario">Aggiorna fornitori</button>
+                </div>
+
+                <fieldset class="selettore-acquisto">
+                    <legend>Nuova riga</legend>
+
+                    <div class="campi-acquisto">
+                        <div class="campo-gestione campo-acquisto-prodotto">
+                            <label for="prodotto-acquisto">Prodotto</label>
+                            <select id="prodotto-acquisto" name="prodottoId">
+                                <option value="">Caricamento prodotti…</option>
+                            </select>
+                        </div>
+
+                        <div class="campo-gestione">
+                            <label for="quantita-acquisto">Quantità</label>
+                            <input type="number" id="quantita-acquisto" min="1" step="1" value="1">
+                        </div>
+
+                        <div class="campo-gestione">
+                            <label for="costo-acquisto">Costo unitario</label>
+                            <input type="number" id="costo-acquisto" min="0" step="0.01">
+                        </div>
+                    </div>
+
+                    <button type="button" id="aggiungi-riga-acquisto" class="pulsante-secondario">
+                        Aggiungi alla lista
+                    </button>
+                </fieldset>
+
+                <div class="tabella-gestione-scroll">
+                    <table class="tabella-gestione">
+                        <thead>
+                            <tr>
+                                <th scope="col">Prodotto</th>
+                                <th scope="col">Quantità</th>
+                                <th scope="col">Costo unitario</th>
+                                <th scope="col">Subtotale</th>
+                                <th scope="col">Azione</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="corpo-righe-acquisto">
+                            <tr>
+                                <td colspan="5" class="tabella-vuota">Aggiungi almeno un prodotto.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="totale-vendita">
+                    <span>Totale acquisto</span>
+                    <strong id="totale-acquisto">0,00 €</strong>
+                </div>
+
+                <button type="submit" class="pulsante-salva">Salva acquisto</button>
+            </form>
+
+            <p id="messaggio-acquisto" class="messaggio-gestione" aria-live="polite"></p>
+        </section>
+
+        <section class="scheda-gestione">
+            <h2>Acquisti registrati</h2>
+
+            <div class="tabella-gestione-scroll">
+                <table class="tabella-gestione">
+                    <thead>
+                        <tr>
+                            <th scope="col">Data</th>
+                            <th scope="col">Fornitore</th>
+                            <th scope="col">Totale</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="corpo-acquisti">
+                        <tr>
+                            <td colspan="3" class="tabella-vuota">Caricamento acquisti…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </section>
     </main>
+
+    <script src="/app.js" defer></script>
 </body>
 </html>

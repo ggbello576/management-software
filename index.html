@@ -19,24 +19,24 @@
     </header>
 
     <section class="riepilogo">
-        <article class="scheda-statistica">
+        <article id="scheda-riordino" class="scheda-statistica">
         <h2>Prodotti da riordinare</h2>
         <p id="conteggio-riordino">...</p>
         </article>
 
-        <article class="scheda-statistica">
+        <article class="scheda-statistica scheda-statistica-vendite">
         <h2>Vendite del mese</h2>
-        <p>0 €</p>
+        <p id="totale-vendite-mese">...</p>
         </article>
 
-        <article class="scheda-statistica">
+        <article class="scheda-statistica scheda-statistica-acquisti">
         <h2>Acquisti del mese</h2>
-        <p>0 €</p>
+        <p id="totale-acquisti-mese">...</p>
         </article>
 
-        <article class="scheda-statistica">
+        <article class="scheda-statistica scheda-statistica-clienti">
         <h2>Clienti registrati</h2>
-        <p>0</p>
+        <p id="conteggio-clienti">...</p>
         </article>
     </section>
 
@@ -56,6 +56,18 @@
         <a href="/clienti" class="pulsante-sezione">
         Clienti
         </a>
+
+        <a href="/prodotti" class="pulsante-sezione">
+        Gestione prodotti
+        </a>
+
+        <a href="/servizi" class="pulsante-sezione">
+        Gestione servizi
+        </a>
+
+        <a href="/fornitori" class="pulsante-sezione">
+        Fornitori
+        </a>
     </nav>
 
     <section class="movimenti">
@@ -72,19 +84,9 @@
             </tr>
             </thead>
 
-            <tbody>
+            <tbody id="corpo-movimenti">
             <tr>
-                <td>27/09/2026</td>
-                <td>Vendita</td>
-                <td>Cliente di esempio</td>
-                <td>32,00 €</td>
-            </tr>
-
-            <tr>
-                <td>26/09/2026</td>
-                <td>Acquisto</td>
-                <td>Fornitore di esempio</td>
-                <td>150,00 €</td>
+                <td colspan="4" class="tabella-vuota">Caricamento movimenti…</td>
             </tr>
             </tbody>
         </table>
