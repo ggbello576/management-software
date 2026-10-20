@@ -4,11 +4,322 @@ let serviziPerVendita = [];
 let righeVendita = [];
 let prodottiPerAcquisto = [];
 let righeAcquisto = [];
+const paginaLogin = window.location.pathname === "/login";
+let sessioneCorrente = null;
+
+function leggiCookie(nome) {
+    const voce = document.cookie
+        .split(";")
+        .map((parte) => parte.trim())
+        .find((parte) => parte.startsWith(`${nome}=`));
+
+    if (!voce) {
+        return null;
+    }
+
+    return decodeURIComponent(voce.slice(nome.length + 1));
+}
+
+function mostraBarraSessione(sessione) {
+    if (!sessione || paginaLogin || document.querySelector("#barra-sessione")) {
+        return;
+    }
+
+    const barra = document.createElement("div");
+    barra.id = "barra-sessione";
+    barra.className = "barra-sessione";
+
+    const informazioni = document.createElement("span");
+    informazioni.textContent = `${sessione.utente.nome} — ${sessione.saloneAttivo.nome}`;
+
+    const controlli = document.createElement("div");
+    controlli.className = "controlli-sessione";
+
+    if (sessione.saloni.length > 1) {
+        const selettore = document.createElement("select");
+        selettore.id = "salone-attivo";
+        selettore.setAttribute("aria-label", "Salone attivo");
+
+        for (const salone of sessione.saloni) {
+            const opzione = document.createElement("option");
+            opzione.value = salone.id;
+            opzione.textContent = `${salone.nome} (${salone.ruolo})`;
+            opzione.selected = salone.id === sessione.saloneAttivo.id;
+            selettore.appendChild(opzione);
+        }
+
+        selettore.addEventListener("change", async () => {
+            try {
+                const risposta = await fetchDati("/api/sessione/salone", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ saloneId: Number(selettore.value) })
+                });
+
+                const risultato = await risposta.json().catch(() => ({}));
+
+                if (!risposta.ok) {
+                    throw new Error(risultato.errore || "Cambio salone non riuscito.");
+                }
+
+                window.location.reload();
+            } catch (errore) {
+                window.alert(errore.message);
+                selettore.value = String(sessione.saloneAttivo.id);
+            }
+        });
+
+        controlli.appendChild(selettore);
+    }
+
+    const logout = document.createElement("button");
+    logout.type = "button";
+    logout.className = "pulsante-secondario";
+    logout.textContent = "Esci";
+    logout.addEventListener("click", async () => {
+        try {
+            const risposta = await fetchDati("/api/logout", { method: "POST" });
+
+            if (!risposta.ok) {
+                const risultato = await risposta.json().catch(() => ({}));
+                throw new Error(risultato.errore || "Logout non riuscito.");
+            }
+
+            window.location.href = "/login";
+        } catch (errore) {
+            window.alert(errore.message);
+        }
+    });
+    controlli.appendChild(logout);
+
+    barra.append(informazioni, controlli);
+    document.body.prepend(barra);
+}
+
+async function inizializzaSessione() {
+    try {
+        const risposta = await fetch("/api/sessione", {
+            credentials: "same-origin",
+            cache: "no-store"
+        });
+
+        if (risposta.status === 401) {
+            const ritorno = encodeURIComponent(window.location.pathname);
+            window.location.replace(`/login?ritorno=${ritorno}`);
+            throw new Error("Sessione non valida.");
+        }
+
+        const risultato = await risposta.json().catch(() => ({}));
+
+        if (!risposta.ok) {
+            throw new Error(risultato.errore || "Impossibile verificare la sessione.");
+        }
+
+        sessioneCorrente = risultato;
+        mostraBarraSessione(risultato);
+        return risultato;
+    } catch (errore) {
+        console.error("Errore nella verifica della sessione:", errore);
+        throw errore;
+    }
+}
+
+const sessionePronta = paginaLogin
+    ? Promise.resolve(null)
+    : inizializzaSessione();
+
+function aggiungiCampoConteggio(riga, configurazione) {
+    const campo = document.createElement("div");
+    campo.className = "campo-gestione";
+
+    const id = `conteggio-${configurazione.nome}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const label = document.createElement("label");
+    label.htmlFor = id;
+    label.textContent = configurazione.etichetta;
+
+    const input = document.createElement("input");
+    input.type = configurazione.tipo || "text";
+    input.id = id;
+    input.name = configurazione.nome;
+    input.dataset.campoConteggio = configurazione.nome;
+    input.required = true;
+
+    if (configurazione.tipo === "number") {
+        input.min = configurazione.min;
+        input.max = configurazione.max;
+        input.step = configurazione.step;
+        input.value = configurazione.valore;
+    }
+
+    if (configurazione.facoltativo) {
+        input.required = false;
+    }
+
+    campo.append(label, input);
+    riga.appendChild(campo);
+}
+
+function creaRigaConteggioIniziale() {
+    const contenitore = document.querySelector("#righe-conteggio-iniziale");
+
+    if (!contenitore) {
+        return;
+    }
+
+    const riga = document.createElement("fieldset");
+    riga.className = "riga-conteggio";
+
+    const titolo = document.createElement("legend");
+    titolo.textContent = `Prodotto ${contenitore.children.length + 1}`;
+    riga.appendChild(titolo);
+
+    aggiungiCampoConteggio(riga, {
+        nome: "nome",
+        etichetta: "Nome",
+        facoltativo: false
+    });
+    aggiungiCampoConteggio(riga, {
+        nome: "marca",
+        etichetta: "Marca (facoltativa)",
+        facoltativo: true
+    });
+    aggiungiCampoConteggio(riga, {
+        nome: "prezzoVendita",
+        etichetta: "Prezzo di vendita",
+        tipo: "number",
+        min: "0",
+        max: "99999999.99",
+        step: "0.01",
+        valore: ""
+    });
+    aggiungiCampoConteggio(riga, {
+        nome: "sogliaRiordino",
+        etichetta: "Soglia di riordino",
+        tipo: "number",
+        min: "0",
+        max: "2147483647",
+        step: "1",
+        valore: "0"
+    });
+    aggiungiCampoConteggio(riga, {
+        nome: "quantitaContata",
+        etichetta: "Quantità contata fisicamente",
+        tipo: "number",
+        min: "1",
+        max: "2147483647",
+        step: "1",
+        valore: ""
+    });
+
+    const azioni = document.createElement("div");
+    azioni.className = "azioni-riga-conteggio";
+    const rimuovi = document.createElement("button");
+    rimuovi.type = "button";
+    rimuovi.className = "pulsante-tabella pulsante-cancella";
+    rimuovi.textContent = "Rimuovi";
+    rimuovi.addEventListener("click", () => {
+        riga.remove();
+
+        if (contenitore.children.length === 0) {
+            creaRigaConteggioIniziale();
+        }
+
+        [...contenitore.children].forEach((elemento, indice) => {
+            elemento.querySelector("legend").textContent = `Prodotto ${indice + 1}`;
+        });
+    });
+    azioni.appendChild(rimuovi);
+    riga.appendChild(azioni);
+    contenitore.appendChild(riga);
+}
+
+function leggiRigheConteggioIniziale() {
+    return [...document.querySelectorAll(".riga-conteggio")].map((riga) => ({
+        nome: riga.querySelector('[data-campo-conteggio="nome"]').value.trim(),
+        marca: riga.querySelector('[data-campo-conteggio="marca"]').value.trim() || null,
+        prezzoVendita: Number(riga.querySelector('[data-campo-conteggio="prezzoVendita"]').value),
+        sogliaRiordino: Number(riga.querySelector('[data-campo-conteggio="sogliaRiordino"]').value),
+        quantitaContata: Number(riga.querySelector('[data-campo-conteggio="quantitaContata"]').value)
+    }));
+}
+
+function chiaveProdottoClient(nome, marca) {
+    return `${nome.trim().toLowerCase()}\u0000${(marca || "").trim().toLowerCase()}`;
+}
+
+async function gestisciFormConteggioIniziale(evento) {
+    evento.preventDefault();
+
+    const form = evento.currentTarget;
+    const messaggio = document.querySelector("#messaggio-conteggio-iniziale");
+
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
+    const righe = leggiRigheConteggioIniziale();
+    const chiavi = new Set();
+
+    for (const riga of righe) {
+        const chiave = chiaveProdottoClient(riga.nome, riga.marca);
+
+        if (chiavi.has(chiave)) {
+            messaggio.textContent = `Il prodotto "${riga.nome}" con la stessa marca è ripetuto nel conteggio.`;
+            return;
+        }
+
+        chiavi.add(chiave);
+    }
+
+    try {
+        const risposta = await fetchDati("/api/giacenze-iniziali", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ righe })
+        });
+
+        const risultato = await risposta.json().catch(() => ({}));
+
+        if (!risposta.ok) {
+            throw new Error(
+                risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`
+            );
+        }
+
+        form.reset();
+        document.querySelector("#righe-conteggio-iniziale").replaceChildren();
+        creaRigaConteggioIniziale();
+        messaggio.textContent = `Conteggio iniziale salvato: ${risultato.prodotti.length} prodotti.`;
+    } catch (errore) {
+        console.error("Errore nel salvataggio del conteggio iniziale:", errore);
+        messaggio.textContent = errore.message === "Failed to fetch"
+            ? "Impossibile contattare il server."
+            : errore.message;
+    }
+}
 
 function fetchDati(url, opzioni = {}) {
-    return fetch(url, {
-        cache: "no-store",
-        ...opzioni
+    return sessionePronta.then(() => {
+        const metodo = (opzioni.method || "GET").toUpperCase();
+        const headers = new Headers(opzioni.headers || {});
+
+        if (["POST", "PUT", "PATCH", "DELETE"].includes(metodo)) {
+            const csrfToken = leggiCookie("gestionale_csrf");
+
+            if (csrfToken) {
+                headers.set("X-CSRF-Token", csrfToken);
+            }
+        }
+
+        return fetch(url, {
+            credentials: "same-origin",
+            cache: "no-store",
+            ...opzioni,
+            headers
+        });
     });
 }
 
@@ -24,6 +335,8 @@ async function caricaDatiMagazzino() {
         }
 
         const prodotti = await risposta.json();
+
+        popolaProdottiRettifica(prodotti);
 
         const prodottiDaRiordinare = prodotti.filter((prodotto) => {
             return Number(prodotto.giacenza) <= Number(prodotto.soglia_riordino);
@@ -105,6 +418,34 @@ async function caricaDatiMagazzino() {
             riga.appendChild(cella);
             corpoTabella.appendChild(riga);
         }
+
+        popolaProdottiRettifica([]);
+    }
+}
+
+function popolaProdottiRettifica(prodotti) {
+    const select = document.querySelector("#prodotto-rettifica");
+
+    if (!select) {
+        return;
+    }
+
+    select.replaceChildren();
+
+    if (prodotti.length === 0) {
+        aggiungiOpzione(select, "", "Nessun prodotto registrato");
+        select.disabled = true;
+        return;
+    }
+
+    select.disabled = false;
+    aggiungiOpzione(select, "", "Seleziona un prodotto");
+
+    for (const prodotto of prodotti) {
+        const descrizione = prodotto.marca
+            ? `${prodotto.nome} — ${prodotto.marca}`
+            : prodotto.nome;
+        aggiungiOpzione(select, prodotto.id, descrizione);
     }
 }
 
@@ -185,7 +526,7 @@ async function caricaClienti() {
             const riga = document.createElement("tr");
             const cella = document.createElement("td");
 
-            cella.colSpan = 6;
+            cella.colSpan = 5;
             cella.textContent = "Non ci sono clienti registrate.";
 
             riga.appendChild(cella);
@@ -207,7 +548,6 @@ async function caricaClienti() {
 
             const valori = [
                 cliente.cognome,
-                cliente.telefono || "—",
                 cliente.note || "—",
                 new Date(cliente.creata_il).toLocaleDateString("it-IT")
             ];
@@ -239,7 +579,7 @@ async function caricaClienti() {
         const riga = document.createElement("tr");
         const cella = document.createElement("td");
 
-        cella.colSpan = 6;
+        cella.colSpan = 5;
         cella.textContent = "Impossibile caricare le clienti.";
 
         riga.appendChild(cella);
@@ -400,8 +740,6 @@ async function caricaDettaglioCliente() {
         titolo.textContent = nome;
         document.title = `${nome} - Gestionale del salone`;
         document.querySelector("#dettaglio-nome").textContent = nome;
-        document.querySelector("#dettaglio-telefono").textContent =
-            cliente.telefono || "—";
         document.querySelector("#dettaglio-note").textContent = cliente.note || "—";
         document.querySelector("#dettaglio-creata").textContent =
             new Date(cliente.creata_il).toLocaleDateString("it-IT");
@@ -463,7 +801,6 @@ async function gestisciFormCliente(evento) {
     const nuovaCliente = {
         nome: form.elements.nome.value.trim(),
         cognome: form.elements.cognome.value.trim(),
-        telefono: form.elements.telefono.value.trim() || null,
         note: form.elements.note.value.trim()
     };
 
@@ -675,6 +1012,68 @@ async function gestisciFormProdotto(evento) {
     } catch (errore) {
         console.error("Errore nel salvataggio del prodotto:", errore);
         messaggio.textContent = errore.message;
+    }
+}
+
+async function gestisciFormRettificaMagazzino(evento) {
+    evento.preventDefault();
+
+    const form = evento.currentTarget;
+    const select = form.elements.prodottoId;
+    const quantita = Number(form.elements.quantitaVariazione.value);
+    const motivo = form.elements.motivo.value.trim();
+    const messaggio = document.querySelector("#messaggio-rettifica-magazzino");
+
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
+    if (!Number.isInteger(quantita) || quantita === 0) {
+        messaggio.textContent = "La quantità della rettifica deve essere un intero diverso da zero.";
+        return;
+    }
+
+    const prodotto = select.options[select.selectedIndex]?.textContent || "prodotto selezionato";
+
+    if (!window.confirm(
+        `Registrare la rettifica per ${prodotto}?\n\nVariazione: ${quantita > 0 ? "+" : ""}${quantita}\nMotivo: ${motivo}`
+    )) {
+        return;
+    }
+
+    try {
+        const risposta = await fetchDati("/api/rettifiche-magazzino", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                prodottoId: Number(select.value),
+                quantitaVariazione: quantita,
+                motivo
+            })
+        });
+
+        const risultato = await risposta.json().catch(() => ({}));
+
+        if (!risposta.ok) {
+            throw new Error(
+                risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`
+            );
+        }
+
+        form.reset();
+        messaggio.textContent = "Rettifica registrata.";
+        await Promise.all([
+            caricaDatiMagazzino(),
+            caricaRettificheMagazzino()
+        ]);
+    } catch (errore) {
+        console.error("Errore nel salvataggio della rettifica:", errore);
+        messaggio.textContent = errore.message === "Failed to fetch"
+            ? "Impossibile contattare il server."
+            : errore.message;
     }
 }
 
@@ -1734,6 +2133,60 @@ document.addEventListener("visibilitychange", () => {
     }
 });
 
+const formLogin = document.querySelector("#form-login");
+
+if (formLogin) {
+    formLogin.addEventListener("submit", async (evento) => {
+        evento.preventDefault();
+
+        const messaggio = document.querySelector("#messaggio-login");
+        const pulsante = formLogin.querySelector("button[type=submit]");
+
+        if (!formLogin.checkValidity()) {
+            formLogin.reportValidity();
+            return;
+        }
+
+        if (pulsante) {
+            pulsante.disabled = true;
+        }
+
+        try {
+            const risposta = await fetchDati("/api/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    email: formLogin.elements.email.value.trim(),
+                    password: formLogin.elements.password.value
+                })
+            });
+
+            const risultato = await risposta.json().catch(() => ({}));
+
+            if (!risposta.ok) {
+                throw new Error(risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`);
+            }
+
+            const ritorno = new URLSearchParams(window.location.search).get("ritorno");
+            const destinazione = ritorno && ritorno.startsWith("/") && !ritorno.startsWith("//")
+                ? ritorno
+                : "/";
+
+            window.location.replace(destinazione);
+        } catch (errore) {
+            if (messaggio) {
+                messaggio.textContent = errore.message === "Failed to fetch"
+                    ? "Impossibile contattare il server."
+                    : errore.message;
+            }
+        } finally {
+            if (pulsante) {
+                pulsante.disabled = false;
+            }
+        }
+    });
+}
+
 if (document.querySelector("#corpo-magazzino")) {
     caricaDatiMagazzino();
 }
@@ -1771,6 +2224,23 @@ if (document.querySelector("#corpo-prodotti")) {
 
 if (formProdotto) {
     formProdotto.addEventListener("submit", gestisciFormProdotto);
+}
+
+const formRettificaMagazzino = document.querySelector("#form-rettifica-magazzino");
+
+if (formRettificaMagazzino) {
+    formRettificaMagazzino.addEventListener("submit", gestisciFormRettificaMagazzino);
+}
+
+const formConteggioIniziale = document.querySelector("#form-conteggio-iniziale");
+
+if (formConteggioIniziale) {
+    document.querySelector("#aggiungi-riga-conteggio").addEventListener(
+        "click",
+        creaRigaConteggioIniziale
+    );
+    creaRigaConteggioIniziale();
+    formConteggioIniziale.addEventListener("submit", gestisciFormConteggioIniziale);
 }
 
 const formServizio = document.querySelector("#form-servizio");

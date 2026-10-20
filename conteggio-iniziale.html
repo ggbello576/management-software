@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conteggio iniziale - Gestionale del salone</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <main class="contenitore pagina-gestione">
+        <header class="intestazione">
+            <div>
+                <p class="soprattitolo">GESTIONALE DEL SALONE</p>
+                <h1>Conteggio iniziale</h1>
+                <p class="descrizione-gestione">
+                    Registra insieme i nuovi prodotti e la quantità fisicamente contata. Il prezzo d'acquisto non è richiesto.
+                </p>
+            </div>
+
+            <a class="link-home" href="/">Torna alla panoramica</a>
+        </header>
+
+        <section class="scheda-gestione">
+            <h2>Prodotti del conteggio</h2>
+            <p class="testo-secondario">
+                Il salvataggio è unico: se una riga non può essere registrata, l'intero conteggio viene annullato.
+            </p>
+
+            <form id="form-conteggio-iniziale" class="form-gestione">
+                <div id="righe-conteggio-iniziale" class="righe-conteggio" aria-live="polite"></div>
+
+                <div class="azioni-conteggio">
+                    <button type="button" id="aggiungi-riga-conteggio" class="pulsante-secondario">
+                        Aggiungi prodotto
+                    </button>
+                    <button type="submit" class="pulsante-salva">
+                        Salva conteggio iniziale
+                    </button>
+                </div>
+            </form>
+
+            <p id="messaggio-conteggio-iniziale" class="messaggio-gestione" aria-live="polite"></p>
+        </section>
+    </main>
+
+    <script src="/app.js" defer></script>
+</body>
+</html>

@@ -40,6 +40,43 @@
 
         <section class="scheda-gestione">
             <h2>Rettifiche di magazzino</h2>
+            <p class="testo-secondario">
+                Registra una variazione per un prodotto già presente. La quantità può essere positiva o negativa, ma non zero.
+            </p>
+
+            <form id="form-rettifica-magazzino" class="form-gestione">
+                <div class="campi-gestione">
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="prodotto-rettifica">Prodotto</label>
+                        <select id="prodotto-rettifica" name="prodottoId" required>
+                            <option value="">Caricamento prodotti…</option>
+                        </select>
+                    </div>
+
+                    <div class="campo-gestione">
+                        <label for="quantita-rettifica">Variazione quantità</label>
+                        <input
+                            type="number"
+                            id="quantita-rettifica"
+                            name="quantitaVariazione"
+                            min="-2147483648"
+                            max="2147483647"
+                            step="1"
+                            required
+                        >
+                    </div>
+
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="motivo-rettifica">Motivo</label>
+                        <input type="text" id="motivo-rettifica" name="motivo" maxlength="1000" required>
+                    </div>
+                </div>
+
+                <button type="submit" class="pulsante-salva">Registra rettifica</button>
+            </form>
+
+            <p id="messaggio-rettifica-magazzino" class="messaggio-gestione" aria-live="polite"></p>
+
             <div class="tabella-gestione-scroll">
                 <table class="tabella-gestione">
                     <thead>

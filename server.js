@@ -3,7 +3,97 @@ require("dotenv").config();//carica la libreria dotenv, .config()cerca e legge .
 const http = require("node:http"); // prende il modulo http da node
 const fs = require("node:fs"); //fs modulo per lavorare con i file
 const pool = require("./db");//esportiamo l'oggetto pool ,il suo file
+const {
+    SESSION_DURATION_SECONDS,
+    authCookies,
+    authEnabled,
+    autenticaRichiesta,
+    clearAuthCookies,
+    csrfCookie,
+    csrfHeaderMatchesCookie,
+    csrfIsValid,
+    hashToken,
+    originIsAllowed,
+    randomToken,
+    verificaPassword
+} = require("./auth");
 const LOCK_NAMESPACE_VENDITE = 1;
+const LOCK_NAMESPACE_PRODOTTI = 2;
+const MOTIVO_GIACENZA_INIZIALE = "Giacenza iniziale";
+
+const PAGINE_PROTETTE = new Set([
+    "/",
+    "/magazzino",
+    "/conteggio-iniziale",
+    "/prodotti",
+    "/servizi",
+    "/fornitori",
+    "/acquisti",
+    "/vendite",
+    "/clienti"
+]);
+
+const API_PROTETTE = new Set([
+    "/api/magazzino",
+    "/api/rettifiche-magazzino",
+    "/api/movimenti-recenti",
+    "/api/dashboard",
+    "/api/prodotti",
+    "/api/giacenze-iniziali",
+    "/api/servizi-gestione",
+    "/api/fornitori",
+    "/api/acquisti",
+    "/api/vendite",
+    "/api/servizi",
+    "/api/clienti"
+]);
+
+const RUOLO_AMMINISTRATORE = "amministratore";
+const RUOLO_OPERATORE = "operatore";
+
+function percorsoPaginaProtetto(percorso) {
+    return PAGINE_PROTETTE.has(percorso) || /^\/clienti\/\d+$/.test(percorso);
+}
+
+function percorsoApiProtetto(percorso) {
+    return API_PROTETTE.has(percorso) ||
+        /^\/api\/clienti\/\d+$/.test(percorso) ||
+        /^\/api\/(vendite|acquisti|righe-vendita|righe-acquisto|prodotti|servizi|clienti|fornitori|rettifiche-magazzino)\/\d+$/.test(percorso);
+}
+
+function richiestaProtetta(percorso) {
+    return percorsoPaginaProtetto(percorso) || percorsoApiProtetto(percorso);
+}
+
+function ruoloRichiesto(method, percorso) {
+    if (percorsoPaginaProtetto(percorso) && [
+        "/conteggio-iniziale",
+        "/prodotti",
+        "/servizi",
+        "/fornitori"
+    ].includes(percorso)) {
+        return RUOLO_AMMINISTRATORE;
+    }
+
+    if (method === "DELETE") {
+        return RUOLO_AMMINISTRATORE;
+    }
+
+    if (method === "POST" && [
+        "/api/prodotti",
+        "/api/giacenze-iniziali",
+        "/api/servizi-gestione",
+        "/api/fornitori"
+    ].includes(percorso)) {
+        return RUOLO_AMMINISTRATORE;
+    }
+
+    if (percorso === "/api/servizi-gestione") {
+        return RUOLO_AMMINISTRATORE;
+    }
+
+    return null;
+}
 
 class ErroreRichiesta extends Error {
     constructor(messaggio, stato = 400) {
@@ -12,13 +102,137 @@ class ErroreRichiesta extends Error {
     }
 }
 
-function rispondiJson(response, stato, dati) {
+function rispondiJson(response, stato, dati, intestazioni = {}) {
     response.writeHead(stato, {
         "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "no-store, no-cache, must-revalidate"
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        ...intestazioni
     });
 
     response.end(JSON.stringify(dati));
+}
+
+function rispondiPaginaNonDisponibile(response) {
+    response.writeHead(503, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+    });
+    response.end(
+        "<h1>Autenticazione non ancora disponibile</h1>" +
+        "<p>La migrazione multi-salone deve essere applicata prima di usare l'applicazione.</p>"
+    );
+}
+
+function payloadLoginValido(dati) {
+    if (!dati || typeof dati !== "object" || Array.isArray(dati)) {
+        throw new ErroreRichiesta("Il contenuto inviato deve essere un oggetto JSON.");
+    }
+
+    const email = typeof dati.email === "string" ? dati.email.trim().toLowerCase() : "";
+    const password = typeof dati.password === "string" ? dati.password : "";
+
+    if (email === "" || email.length > 320 || !email.includes("@")) {
+        throw new ErroreRichiesta("Inserisci un indirizzo email valido.");
+    }
+
+    if (password.length < 8 || password.length > 1024) {
+        throw new ErroreRichiesta("La password non è valida.");
+    }
+
+    return { email, password };
+}
+
+function payloadSaloneValido(dati) {
+    if (!dati || typeof dati !== "object" || Array.isArray(dati)) {
+        throw new ErroreRichiesta("Il contenuto inviato deve essere un oggetto JSON.");
+    }
+
+    if (!idInteroValido(dati.saloneId)) {
+        throw new ErroreRichiesta("saloneId deve essere un ID numerico valido.");
+    }
+
+    return dati.saloneId;
+}
+
+async function leggiMembership(poolClient, utenteId) {
+    const risultato = await poolClient.query(
+        `
+            SELECT
+                saloni.id,
+                saloni.nome,
+                utenti_saloni.ruolo
+            FROM public.utenti_saloni AS utenti_saloni
+            JOIN public.saloni AS saloni
+                ON saloni.id = utenti_saloni.salone_id
+            WHERE utenti_saloni.utente_id = $1
+            ORDER BY saloni.id;
+        `,
+        [utenteId]
+    );
+
+    return risultato.rows;
+}
+
+async function autorizzaRichiesta(request, response, percorso) {
+    if (!authEnabled()) {
+        if (percorso.startsWith("/api/")) {
+            rispondiJson(response, 503, {
+                errore: "Autenticazione non disponibile: applicare prima la migrazione multi-salone."
+            });
+        } else {
+            rispondiPaginaNonDisponibile(response);
+        }
+
+        return null;
+    }
+
+    let sessione;
+
+    try {
+        sessione = await autenticaRichiesta(pool, request);
+    } catch (errore) {
+        console.error("Errore nella verifica della sessione:", errore);
+        rispondiJson(response, 503, {
+            errore: "Autenticazione non disponibile: verificare la migrazione multi-salone."
+        });
+        return null;
+    }
+
+    if (!sessione) {
+        if (percorso.startsWith("/api/")) {
+            rispondiJson(response, 401, { errore: "Sessione non valida o scaduta." });
+        } else {
+            const ritorno = encodeURIComponent(`${request.url}`);
+            response.writeHead(302, { Location: `/login?ritorno=${ritorno}` });
+            response.end();
+        }
+
+        return null;
+    }
+
+    if (request.method !== "GET" && request.method !== "HEAD") {
+        if (!originIsAllowed(request)) {
+            rispondiJson(response, 403, { errore: "Origine della richiesta non autorizzata." });
+            return null;
+        }
+
+        if (!csrfIsValid(request, sessione.csrf_token_hash)) {
+            rispondiJson(response, 403, { errore: "Token CSRF mancante o non valido." });
+            return null;
+        }
+    }
+
+    const ruolo = ruoloRichiesto(request.method, percorso);
+
+    if (ruolo && sessione.ruolo !== ruolo) {
+        rispondiJson(response, 403, {
+            errore: "Il ruolo dell'utente non consente questa operazione."
+        });
+        return null;
+    }
+
+    request.auth = sessione;
+    return sessione;
 }
 
 function idInteroValido(valore) {
@@ -148,6 +362,128 @@ function validaPayloadProdotto(dati) {
         prezzoVendita: dati.prezzoVendita,
         sogliaRiordino: dati.sogliaRiordino
     };
+}
+
+function chiaveProdotto(nome, marca) {
+    return `${nome.trim().toLowerCase()}\u0000${(marca || "").trim().toLowerCase()}`;
+}
+
+function validaQuantitaIntera(valore, messaggio, { minimo, massimo }) {
+    if (
+        !Number.isSafeInteger(valore) ||
+        valore < minimo ||
+        valore > massimo
+    ) {
+        throw new ErroreRichiesta(messaggio);
+    }
+
+    return valore;
+}
+
+function validaPayloadConteggioIniziale(dati) {
+    if (!dati || typeof dati !== "object" || Array.isArray(dati)) {
+        throw new ErroreRichiesta("Il contenuto inviato deve essere un oggetto JSON.");
+    }
+
+    if (!Array.isArray(dati.righe) || dati.righe.length === 0) {
+        throw new ErroreRichiesta("Il conteggio deve contenere almeno un prodotto.");
+    }
+
+    if (dati.righe.length > 200) {
+        throw new ErroreRichiesta("Un conteggio può contenere al massimo 200 prodotti.");
+    }
+
+    const chiavi = new Set();
+    const righe = dati.righe.map((riga) => {
+        if (!riga || typeof riga !== "object" || Array.isArray(riga)) {
+            throw new ErroreRichiesta("Ogni riga del conteggio deve essere un oggetto.");
+        }
+
+        const prodotto = validaPayloadProdotto(riga);
+        const chiave = chiaveProdotto(prodotto.nome, prodotto.marca);
+
+        if (chiavi.has(chiave)) {
+            throw new ErroreRichiesta(
+                `Il prodotto "${prodotto.nome}" con la stessa marca è ripetuto nel conteggio.`
+            );
+        }
+
+        chiavi.add(chiave);
+
+        return {
+            ...prodotto,
+            quantitaContata: validaQuantitaIntera(
+                riga.quantitaContata,
+                "La quantità contata deve essere un numero intero positivo.",
+                { minimo: 1, massimo: 2147483647 }
+            )
+        };
+    });
+
+    return { righe };
+}
+
+function validaPayloadRettificaMagazzino(dati) {
+    if (!dati || typeof dati !== "object" || Array.isArray(dati)) {
+        throw new ErroreRichiesta("Il contenuto inviato deve essere un oggetto JSON.");
+    }
+
+    if (!idInteroValido(dati.prodottoId)) {
+        throw new ErroreRichiesta("prodottoId deve essere un ID numerico valido.");
+    }
+
+    const quantitaVariazione = validaQuantitaIntera(
+        dati.quantitaVariazione,
+        "La quantità della rettifica deve essere un intero diverso da zero.",
+        { minimo: -2147483648, massimo: 2147483647 }
+    );
+
+    if (quantitaVariazione === 0) {
+        throw new ErroreRichiesta("La quantità della rettifica non può essere zero.");
+    }
+
+    const motivo = typeof dati.motivo === "string" ? dati.motivo.trim() : "";
+
+    if (motivo === "") {
+        throw new ErroreRichiesta("Il motivo della rettifica è obbligatorio.");
+    }
+
+    if (motivo.length > 1000) {
+        throw new ErroreRichiesta("Il motivo della rettifica è troppo lungo.");
+    }
+
+    if (motivo.toLowerCase() === MOTIVO_GIACENZA_INIZIALE.toLowerCase()) {
+        throw new ErroreRichiesta(
+            "La giacenza iniziale si registra solo dalla pagina Conteggio iniziale."
+        );
+    }
+
+    return {
+        prodottoId: dati.prodottoId,
+        quantitaVariazione,
+        motivo
+    };
+}
+
+async function verificaProdottoDuplicato(client, dati, saloneId) {
+    const risultato = await client.query(
+        `
+            SELECT id
+            FROM public.prodotti
+            WHERE salone_id = $1
+              AND lower(btrim(nome)) = lower($2)
+              AND lower(btrim(COALESCE(marca, ''))) = lower($3)
+            LIMIT 1;
+        `,
+        [saloneId, dati.nome, dati.marca || ""]
+    );
+
+    if (risultato.rowCount > 0) {
+        throw new ErroreRichiesta(
+            `Esiste già un prodotto con nome "${dati.nome}" e la stessa marca.`,
+            409
+        );
+    }
 }
 
 function validaPayloadServizio(dati) {
@@ -335,9 +671,294 @@ function rispondiErroreOperazione(response, errore, messaggioGenerico) {
     });
 }
 
+async function gestisciLogin(request, response) {
+    if (!authEnabled()) {
+        rispondiJson(response, 503, {
+            errore: "Il login sarà disponibile dopo l'applicazione della migrazione multi-salone."
+        });
+        return;
+    }
+
+    let dati;
+
+    try {
+        dati = payloadLoginValido(await leggiJson(request));
+    } catch (errore) {
+        rispondiJson(response, errore instanceof ErroreRichiesta ? errore.stato : 400, {
+            errore: errore instanceof ErroreRichiesta
+                ? errore.message
+                : "Il contenuto inviato non è un JSON valido."
+        });
+        return;
+    }
+
+    if (!originIsAllowed(request) || !csrfHeaderMatchesCookie(request)) {
+        rispondiJson(response, 403, { errore: "Origine della richiesta non autorizzata." });
+        return;
+    }
+
+    try {
+        const utente = await pool.query(
+            `
+                SELECT id, nome, email, password_hash
+                FROM public.utenti
+                WHERE lower(email) = lower($1)
+                LIMIT 1;
+            `,
+            [dati.email]
+        );
+
+        if (utente.rowCount === 0) {
+            rispondiJson(response, 401, { errore: "Email o password non valide." });
+            return;
+        }
+
+        let passwordValida = false;
+
+        try {
+            passwordValida = await verificaPassword(
+                dati.password,
+                utente.rows[0].password_hash
+            );
+        } catch {
+            passwordValida = false;
+        }
+
+        if (!passwordValida) {
+            rispondiJson(response, 401, { errore: "Email o password non valide." });
+            return;
+        }
+
+        const memberships = await leggiMembership(pool, utente.rows[0].id);
+
+        if (memberships.length === 0) {
+            rispondiJson(response, 403, {
+                errore: "L'utente non è associato ad alcun salone."
+            });
+            return;
+        }
+
+        const sessionToken = randomToken();
+        const csrfToken = randomToken();
+        const saloneAttivo = memberships[0];
+
+        await pool.query(
+            `
+                INSERT INTO public.sessioni
+                    (token_hash, csrf_token_hash, utente_id, salone_id, scade_il)
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    $4,
+                    CURRENT_TIMESTAMP + ($5::integer * INTERVAL '1 second')
+                );
+            `,
+            [
+                hashToken(sessionToken),
+                hashToken(csrfToken),
+                utente.rows[0].id,
+                saloneAttivo.id,
+                SESSION_DURATION_SECONDS
+            ]
+        );
+
+        rispondiJson(
+            response,
+            200,
+            {
+                utente: {
+                    id: utente.rows[0].id,
+                    nome: utente.rows[0].nome,
+                    email: utente.rows[0].email
+                },
+                saloneAttivo: {
+                    id: saloneAttivo.id,
+                    nome: saloneAttivo.nome,
+                    ruolo: saloneAttivo.ruolo
+                },
+                saloni: memberships.map((salone) => ({
+                    id: salone.id,
+                    nome: salone.nome,
+                    ruolo: salone.ruolo
+                }))
+            },
+            { "Set-Cookie": authCookies(sessionToken, csrfToken) }
+        );
+    } catch (errore) {
+        console.error("Errore nel login:", errore);
+        rispondiJson(response, 503, {
+            errore: "Impossibile completare il login. Verificare la migrazione e la configurazione del database."
+        });
+    }
+}
+
+async function gestisciSessione(request, response, sessione) {
+    try {
+        const memberships = await leggiMembership(pool, sessione.utente_id);
+
+        rispondiJson(response, 200, {
+            utente: {
+                id: sessione.utente_id,
+                nome: sessione.utente_nome,
+                email: sessione.utente_email
+            },
+            saloneAttivo: {
+                id: sessione.salone_id,
+                nome: memberships.find((salone) => salone.id === sessione.salone_id)?.nome || "",
+                ruolo: sessione.ruolo
+            },
+            saloni: memberships.map((salone) => ({
+                id: salone.id,
+                nome: salone.nome,
+                ruolo: salone.ruolo
+            }))
+        });
+    } catch (errore) {
+        console.error("Errore nel caricamento della sessione:", errore);
+        rispondiJson(response, 503, {
+            errore: "Impossibile caricare la sessione."
+        });
+    }
+}
+
+async function gestisciCambioSalone(request, response, sessione) {
+    let saloneId;
+
+    try {
+        saloneId = payloadSaloneValido(await leggiJson(request));
+    } catch (errore) {
+        rispondiJson(response, errore instanceof ErroreRichiesta ? errore.stato : 400, {
+            errore: errore instanceof ErroreRichiesta
+                ? errore.message
+                : "Il contenuto inviato non è un JSON valido."
+        });
+        return;
+    }
+
+    try {
+        await eseguiTransazione(async (client) => {
+            const membership = await client.query(
+                `
+                    SELECT 1
+                    FROM public.utenti_saloni
+                    WHERE utente_id = $1
+                      AND salone_id = $2;
+                `,
+                [sessione.utente_id, saloneId]
+            );
+
+            if (membership.rowCount === 0) {
+                throw new ErroreRichiesta("Il salone richiesto non è autorizzato.", 403);
+            }
+
+            const aggiornata = await client.query(
+                `
+                    UPDATE public.sessioni
+                    SET salone_id = $1
+                    WHERE id = $2
+                      AND utente_id = $3
+                      AND revocata_il IS NULL
+                      AND scade_il > CURRENT_TIMESTAMP
+                    RETURNING id;
+                `,
+                [saloneId, sessione.session_id, sessione.utente_id]
+            );
+
+            if (aggiornata.rowCount === 0) {
+                throw new ErroreRichiesta("La sessione non è più valida.", 401);
+            }
+        });
+
+        rispondiJson(response, 200, { saloneId });
+    } catch (errore) {
+        rispondiErroreOperazione(response, errore, "Impossibile cambiare salone attivo.");
+    }
+}
+
+async function gestisciLogout(response, sessione) {
+    try {
+        await pool.query(
+            `
+                UPDATE public.sessioni
+                SET revocata_il = CURRENT_TIMESTAMP
+                WHERE id = $1;
+            `,
+            [sessione.session_id]
+        );
+
+        response.writeHead(204, {
+            "Set-Cookie": clearAuthCookies(),
+            "Cache-Control": "no-store"
+        });
+        response.end();
+    } catch (errore) {
+        console.error("Errore nel logout:", errore);
+        rispondiJson(response, 503, { errore: "Impossibile terminare la sessione." });
+    }
+}
+
 const server = http.createServer(async (request, response) => {//async cosi possiamo usare await ricordi?
     console.log("Metodo:", request.method);
     console.log("Percorso:", request.url);
+
+    const url = new URL(request.url, `http://${request.headers.host || "localhost:3000"}`);
+    const percorso = url.pathname;
+
+    if (request.method === "GET" && percorso === "/login") {
+        response.writeHead(200, {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store",
+            "Set-Cookie": csrfCookie(randomToken())
+        });
+        response.end(fs.readFileSync("login.html", "utf8"));
+        return;
+    }
+
+    if (request.method === "POST" && percorso === "/api/login") {
+        await gestisciLogin(request, response);
+        return;
+    }
+
+    if (percorso === "/api/sessione" && request.method === "GET") {
+        const sessione = await autorizzaRichiesta(request, response, percorso);
+
+        if (sessione) {
+            await gestisciSessione(request, response, sessione);
+        }
+
+        return;
+    }
+
+    if (percorso === "/api/sessione/salone" && request.method === "POST") {
+        const sessione = await autorizzaRichiesta(request, response, percorso);
+
+        if (sessione) {
+            await gestisciCambioSalone(request, response, sessione);
+        }
+
+        return;
+    }
+
+    if (percorso === "/api/logout" && request.method === "POST") {
+        const sessione = await autorizzaRichiesta(request, response, percorso);
+
+        if (sessione) {
+            await gestisciLogout(response, sessione);
+        }
+
+        return;
+    }
+
+    if (richiestaProtetta(percorso)) {
+        const sessione = await autorizzaRichiesta(request, response, percorso);
+
+        if (!sessione) {
+            return;
+        }
+    }
+
+    const saloneId = request.auth ? request.auth.salone_id : null;
 
     if (request.method === "GET" && request.url === "/") {//metodo get e solito percorso
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); //dici che colleghi un html, intestazione risposta
@@ -369,6 +990,16 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 });
 
                 response.end(fs.readFileSync("magazzino.html", "utf8"));
+
+                }   else if (
+            request.method === "GET" &&
+            request.url === "/conteggio-iniziale"
+            ) {
+                response.writeHead(200, {
+                    "Content-Type": "text/html; charset=utf-8"
+                });
+
+                response.end(fs.readFileSync("conteggio-iniziale.html", "utf8"));
 
                 }   else if (
             request.method === "GET" &&
@@ -408,24 +1039,30 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     const risultato = await pool.query(`
                     WITH movimenti_magazzino AS (
                         SELECT
+                            salone_id,
                             prodotto_id,
                             quantita_variazione AS variazione
-                        FROM rettifiche_magazzino
+                        FROM public.rettifiche_magazzino
+                        WHERE salone_id = $1
 
                         UNION ALL
 
                         SELECT
+                            salone_id,
                             prodotto_id,
                             quantita AS variazione
-                        FROM righe_acquisto
+                        FROM public.righe_acquisto
+                        WHERE salone_id = $1
 
                         UNION ALL
 
                         SELECT
+                            salone_id,
                             prodotto_id,
                             -quantita AS variazione
-                        FROM righe_vendita
+                        FROM public.righe_vendita
                         WHERE prodotto_id IS NOT NULL
+                          AND salone_id = $1
                     )
                     SELECT
                         prodotti.id,
@@ -434,9 +1071,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza,
                         prodotti.soglia_riordino,
                         prodotti.prezzo_vendita
-                    FROM prodotti
+                    FROM public.prodotti AS prodotti
                     LEFT JOIN movimenti_magazzino
                         ON movimenti_magazzino.prodotto_id = prodotti.id
+                       AND movimenti_magazzino.salone_id = prodotti.salone_id
+                    WHERE prodotti.salone_id = $1
                     GROUP BY
                         prodotti.id,
                         prodotti.nome,
@@ -444,7 +1083,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         prodotti.soglia_riordino,
                         prodotti.prezzo_vendita
                     ORDER BY prodotti.nome;
-                `);
+                `, [saloneId]);
 
                 response.writeHead(200, {//invia codice http 200, che indica il codice della risposta che il server invia per indicare che la richiesta è riuscita.
                     "Content-Type": "application/json; charset=utf-8"
@@ -465,6 +1104,51 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             }
 
             } else if (
+        request.method === "POST" &&
+        request.url === "/api/rettifiche-magazzino"
+    ) {
+        let dati;
+
+        try {
+            dati = validaPayloadRettificaMagazzino(await leggiJson(request));
+        } catch (errore) {
+            const messaggio = errore instanceof ErroreRichiesta
+                ? errore.message
+                : "Il contenuto inviato non è un JSON valido.";
+
+            rispondiJson(response, 400, { errore: messaggio });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                const prodotto = await client.query(
+                    `SELECT id FROM public.prodotti WHERE id = $1 AND salone_id = $2;`,
+                    [dati.prodottoId, saloneId]
+                );
+
+                if (prodotto.rowCount === 0) {
+                    throw new ErroreRichiesta("Il prodotto selezionato non esiste.", 404);
+                }
+
+                const rettifica = await client.query(
+                    `
+                        INSERT INTO public.rettifiche_magazzino
+                            (salone_id, prodotto_id, quantita_variazione, motivo)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id, prodotto_id, quantita_variazione, data_movimento, motivo;
+                    `,
+                    [saloneId, dati.prodottoId, dati.quantitaVariazione, dati.motivo]
+                );
+
+                return rettifica.rows[0];
+            });
+
+            rispondiJson(response, 201, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(response, errore, "Impossibile registrare la rettifica di magazzino.");
+        }
+            } else if (
         request.method === "GET" &&
         request.url === "/api/rettifiche-magazzino"
     ) {
@@ -480,10 +1164,12 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 FROM public.rettifiche_magazzino AS rettifiche_magazzino
                 JOIN public.prodotti AS prodotti
                     ON prodotti.id = rettifiche_magazzino.prodotto_id
+                   AND prodotti.salone_id = rettifiche_magazzino.salone_id
+                WHERE rettifiche_magazzino.salone_id = $1
                 ORDER BY
                     rettifiche_magazzino.data_movimento DESC,
                     rettifiche_magazzino.id DESC;
-            `);
+            `, [saloneId]);
 
             rispondiJson(response, 200, risultato.rows);
         } catch (errore) {
@@ -517,8 +1203,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         FROM public.vendite AS vendite
                         LEFT JOIN public.clienti AS clienti
                             ON clienti.id = vendite.cliente_id
+                           AND clienti.salone_id = vendite.salone_id
                         LEFT JOIN public.righe_vendita AS righe_vendita
                             ON righe_vendita.vendita_id = vendite.id
+                           AND righe_vendita.salone_id = vendite.salone_id
+                        WHERE vendite.salone_id = $1
                         GROUP BY
                             vendite.id,
                             vendite.data_vendita,
@@ -539,8 +1228,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         FROM public.acquisti AS acquisti
                         JOIN public.fornitori AS fornitori
                             ON fornitori.id = acquisti.fornitore_id
+                           AND fornitori.salone_id = acquisti.salone_id
                         LEFT JOIN public.righe_acquisto AS righe_acquisto
                             ON righe_acquisto.acquisto_id = acquisti.id
+                           AND righe_acquisto.salone_id = acquisti.salone_id
+                        WHERE acquisti.salone_id = $1
                         GROUP BY
                             acquisti.id,
                             acquisti.data_acquisto,
@@ -551,12 +1243,18 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         SELECT
                             rettifiche_magazzino.id AS riferimento,
                             rettifiche_magazzino.data_movimento,
-                            'Rettifica magazzino' AS operazione,
+                            CASE
+                                WHEN rettifiche_magazzino.motivo = $3
+                                    THEN 'Giacenza iniziale'
+                                ELSE 'Rettifica magazzino'
+                            END AS operazione,
                             prodotti.nome || ' — ' || rettifiche_magazzino.motivo AS soggetto,
                             NULL::numeric AS importo
                         FROM public.rettifiche_magazzino AS rettifiche_magazzino
                         JOIN public.prodotti AS prodotti
                             ON prodotti.id = rettifiche_magazzino.prodotto_id
+                           AND prodotti.salone_id = rettifiche_magazzino.salone_id
+                        WHERE rettifiche_magazzino.salone_id = $1
 
                         UNION ALL
 
@@ -567,6 +1265,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                             clienti.nome || ' ' || clienti.cognome AS soggetto,
                             NULL::numeric AS importo
                         FROM public.clienti AS clienti
+                        WHERE clienti.salone_id = $1
 
                         UNION ALL
 
@@ -577,11 +1276,12 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                             fornitori.nome AS soggetto,
                             NULL::numeric AS importo
                         FROM public.fornitori AS fornitori
+                        WHERE fornitori.salone_id = $1
                     ) AS movimenti
                     ORDER BY data_movimento DESC, riferimento DESC
-                    LIMIT $1;
+                    LIMIT $2;
                 `,
-                [20]
+                [saloneId, 20, MOTIVO_GIACENZA_INIZIALE]
             );
 
             rispondiJson(response, 200, risultato.rows);
@@ -602,34 +1302,43 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             const risultato = await pool.query(`
                 WITH movimenti_magazzino AS (
                     SELECT
+                        salone_id,
                         prodotto_id,
                         quantita_variazione AS variazione
                     FROM public.rettifiche_magazzino
+                    WHERE salone_id = $1
 
                     UNION ALL
 
                     SELECT
+                        salone_id,
                         prodotto_id,
                         quantita AS variazione
                     FROM public.righe_acquisto
+                    WHERE salone_id = $1
 
                     UNION ALL
 
                     SELECT
+                        salone_id,
                         prodotto_id,
                         -quantita AS variazione
                     FROM public.righe_vendita
                     WHERE prodotto_id IS NOT NULL
+                      AND salone_id = $1
                 ),
                 prodotti_con_giacenza AS (
                     SELECT
                         prodotti.id,
+                        prodotti.salone_id,
                         prodotti.soglia_riordino,
                         GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza
                     FROM public.prodotti AS prodotti
                     LEFT JOIN movimenti_magazzino
                         ON movimenti_magazzino.prodotto_id = prodotti.id
-                    GROUP BY prodotti.id, prodotti.soglia_riordino
+                       AND movimenti_magazzino.salone_id = prodotti.salone_id
+                    WHERE prodotti.salone_id = $1
+                    GROUP BY prodotti.id, prodotti.salone_id, prodotti.soglia_riordino
                 ),
                 vendite_mese AS (
                     SELECT COALESCE(
@@ -639,7 +1348,9 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     FROM public.vendite AS vendite
                     LEFT JOIN public.righe_vendita AS righe_vendita
                         ON righe_vendita.vendita_id = vendite.id
-                    WHERE vendite.data_vendita >= date_trunc('month', CURRENT_TIMESTAMP)
+                       AND righe_vendita.salone_id = vendite.salone_id
+                    WHERE vendite.salone_id = $1
+                      AND vendite.data_vendita >= date_trunc('month', CURRENT_TIMESTAMP)
                 ),
                 acquisti_mese AS (
                     SELECT COALESCE(
@@ -649,18 +1360,20 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     FROM public.acquisti AS acquisti
                     LEFT JOIN public.righe_acquisto AS righe_acquisto
                         ON righe_acquisto.acquisto_id = acquisti.id
-                    WHERE acquisti.data_acquisto >= date_trunc('month', CURRENT_TIMESTAMP)
+                       AND righe_acquisto.salone_id = acquisti.salone_id
+                    WHERE acquisti.salone_id = $1
+                      AND acquisti.data_acquisto >= date_trunc('month', CURRENT_TIMESTAMP)
                 )
                 SELECT
                     (SELECT totale FROM vendite_mese) AS vendite_mese,
                     (SELECT totale FROM acquisti_mese) AS acquisti_mese,
-                    (SELECT COUNT(*)::integer FROM public.clienti) AS clienti_totali,
+                    (SELECT COUNT(*)::integer FROM public.clienti WHERE salone_id = $1) AS clienti_totali,
                     (
                         SELECT COUNT(*)::integer
                         FROM prodotti_con_giacenza
                         WHERE giacenza <= soglia_riordino
                     ) AS prodotti_da_riordinare;
-            `);
+            `, [saloneId]);
 
             rispondiJson(response, 200, risultato.rows[0]);
         } catch (errore) {
@@ -680,24 +1393,30 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             const risultato = await pool.query(`
                 WITH movimenti_magazzino AS (
                     SELECT
+                        salone_id,
                         prodotto_id,
                         quantita_variazione AS variazione
                     FROM public.rettifiche_magazzino
+                    WHERE salone_id = $1
 
                     UNION ALL
 
                     SELECT
+                        salone_id,
                         prodotto_id,
                         quantita AS variazione
                     FROM public.righe_acquisto
+                    WHERE salone_id = $1
 
                     UNION ALL
 
                     SELECT
+                        salone_id,
                         prodotto_id,
                         -quantita AS variazione
                     FROM public.righe_vendita
                     WHERE prodotto_id IS NOT NULL
+                      AND salone_id = $1
                 )
                 SELECT
                     prodotti.id,
@@ -709,6 +1428,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 FROM public.prodotti AS prodotti
                 LEFT JOIN movimenti_magazzino
                     ON movimenti_magazzino.prodotto_id = prodotti.id
+                   AND movimenti_magazzino.salone_id = prodotti.salone_id
+                WHERE prodotti.salone_id = $1
                 GROUP BY
                     prodotti.id,
                     prodotti.nome,
@@ -716,7 +1437,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     prodotti.prezzo_vendita,
                     prodotti.soglia_riordino
                 ORDER BY prodotti.nome;
-            `);
+            `, [saloneId]);
 
             rispondiJson(response, 200, risultato.rows);
         } catch (errore) {
@@ -746,30 +1467,118 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         }
 
         try {
-            const risultato = await pool.query(
-                `
-                    INSERT INTO public.prodotti
-                        (nome, marca, prezzo_vendita, soglia_riordino)
-                    VALUES ($1, $2, $3, $4)
-                    RETURNING id, nome, marca, prezzo_vendita, soglia_riordino;
-                `,
-                [
-                    dati.nome,
-                    dati.marca,
-                    dati.prezzoVendita,
-                    dati.sogliaRiordino
-                ]
-            );
+            const risultato = await eseguiTransazione(async (client) => {
+                await client.query("SELECT pg_advisory_xact_lock($1);", [LOCK_NAMESPACE_PRODOTTI]);
+                await verificaProdottoDuplicato(client, dati, saloneId);
 
-            rispondiJson(response, 201, risultato.rows[0]);
+                const prodotto = await client.query(
+                    `
+                        INSERT INTO public.prodotti
+                            (salone_id, nome, marca, prezzo_vendita, soglia_riordino)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING id, nome, marca, prezzo_vendita, soglia_riordino;
+                    `,
+                    [
+                        saloneId,
+                        dati.nome,
+                        dati.marca,
+                        dati.prezzoVendita,
+                        dati.sogliaRiordino
+                    ]
+                );
+
+                return prodotto.rows[0];
+            });
+
+            rispondiJson(response, 201, risultato);
         } catch (errore) {
             console.error("Errore nel salvataggio del prodotto:", errore);
-            rispondiJson(response, 500, {
-                errore: messaggioErroreDatabase(
-                    errore,
-                    "Impossibile salvare il prodotto."
-                )
+            rispondiErroreOperazione(response, errore, "Impossibile salvare il prodotto.");
+        }
+    } else if (
+        request.method === "POST" &&
+        request.url === "/api/giacenze-iniziali"
+    ) {
+        let dati;
+
+        try {
+            dati = validaPayloadConteggioIniziale(await leggiJson(request));
+        } catch (errore) {
+            const messaggio = errore instanceof ErroreRichiesta
+                ? errore.message
+                : "Il contenuto inviato non è un JSON valido.";
+
+            rispondiJson(response, 400, { errore: messaggio });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                // Serializza i conteggi iniziali concorrenti senza aggiungere vincoli allo schema.
+                await client.query("SELECT pg_advisory_xact_lock($1);", [LOCK_NAMESPACE_PRODOTTI]);
+
+                const salvati = [];
+
+                for (const riga of dati.righe) {
+                    await verificaProdottoDuplicato(client, riga, saloneId);
+
+                    const prodotto = await client.query(
+                        `
+                            INSERT INTO public.prodotti
+                                (salone_id, nome, marca, prezzo_vendita, soglia_riordino)
+                            VALUES ($1, $2, $3, $4, $5)
+                            RETURNING id, nome, marca, prezzo_vendita, soglia_riordino;
+                        `,
+                        [
+                            saloneId,
+                            riga.nome,
+                            riga.marca,
+                            riga.prezzoVendita,
+                            riga.sogliaRiordino
+                        ]
+                    );
+
+                    const rettifica = await client.query(
+                        `
+                            SELECT id
+                            FROM public.rettifiche_magazzino
+                            WHERE salone_id = $1
+                              AND prodotto_id = $2
+                              AND motivo = $3
+                            LIMIT 1;
+                        `,
+                        [saloneId, prodotto.rows[0].id, MOTIVO_GIACENZA_INIZIALE]
+                    );
+
+                    if (rettifica.rowCount > 0) {
+                        throw new ErroreRichiesta(
+                            `La giacenza iniziale per "${riga.nome}" è già stata registrata.`,
+                            409
+                        );
+                    }
+
+                    await client.query(
+                        `
+                            INSERT INTO public.rettifiche_magazzino
+                                (salone_id, prodotto_id, quantita_variazione, motivo)
+                            VALUES ($1, $2, $3, $4);
+                        `,
+                        [saloneId, prodotto.rows[0].id, riga.quantitaContata, MOTIVO_GIACENZA_INIZIALE]
+                    );
+
+                    salvati.push(prodotto.rows[0]);
+                }
+
+                return { prodotti: salvati };
             });
+
+            rispondiJson(response, 201, risultato);
+        } catch (errore) {
+            rispondiErroreOperazione(
+                response,
+                errore,
+                "Impossibile salvare il conteggio iniziale: nessuna riga è stata registrata."
+            );
         }
     } else if (
         request.method === "GET" &&
@@ -779,8 +1588,9 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             const risultato = await pool.query(`
                 SELECT id, nome, prezzo, attivo
                 FROM public.servizi
+                WHERE salone_id = $1
                 ORDER BY nome;
-            `);
+            `, [saloneId]);
 
             rispondiJson(response, 200, risultato.rows);
         } catch (errore) {
@@ -812,11 +1622,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await pool.query(
                 `
-                    INSERT INTO public.servizi (nome, prezzo)
-                    VALUES ($1, $2)
+                    INSERT INTO public.servizi (salone_id, nome, prezzo)
+                    VALUES ($1, $2, $3)
                     RETURNING id, nome, prezzo, attivo;
                 `,
-                [dati.nome, dati.prezzo]
+                [saloneId, dati.nome, dati.prezzo]
             );
 
             rispondiJson(response, 201, risultato.rows[0]);
@@ -837,8 +1647,9 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             const risultato = await pool.query(`
                 SELECT id, nome, telefono, email, note, creata_il
                 FROM public.fornitori
+                WHERE salone_id = $1
                 ORDER BY nome, id;
-            `);
+            `, [saloneId]);
 
             rispondiJson(response, 200, risultato.rows);
         } catch (errore) {
@@ -870,11 +1681,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await pool.query(
                 `
-                    INSERT INTO public.fornitori (nome, telefono, email, note)
-                    VALUES ($1, $2, $3, $4)
+                    INSERT INTO public.fornitori (salone_id, nome, telefono, email, note)
+                    VALUES ($1, $2, $3, $4, $5)
                     RETURNING id, nome, telefono, email, note, creata_il;
                 `,
-                [dati.nome, dati.telefono, dati.email, dati.note]
+                [saloneId, dati.nome, dati.telefono, dati.email, dati.note]
             );
 
             rispondiJson(response, 201, risultato.rows[0]);
@@ -917,16 +1728,20 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 FROM public.acquisti AS acquisti
                 JOIN public.fornitori AS fornitori
                     ON fornitori.id = acquisti.fornitore_id
+                   AND fornitori.salone_id = acquisti.salone_id
                 LEFT JOIN public.righe_acquisto AS righe_acquisto
                     ON righe_acquisto.acquisto_id = acquisti.id
+                   AND righe_acquisto.salone_id = acquisti.salone_id
                 LEFT JOIN public.prodotti AS prodotti
                     ON prodotti.id = righe_acquisto.prodotto_id
+                   AND prodotti.salone_id = righe_acquisto.salone_id
+                WHERE acquisti.salone_id = $1
                 GROUP BY
                     acquisti.id,
                     acquisti.data_acquisto,
                     fornitori.nome
                 ORDER BY acquisti.data_acquisto DESC, acquisti.id DESC;
-            `);
+            `, [saloneId]);
 
             rispondiJson(response, 200, risultato.rows);
         } catch (errore) {
@@ -976,12 +1791,17 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 FROM public.vendite AS vendite
                 LEFT JOIN public.clienti AS clienti
                     ON clienti.id = vendite.cliente_id
+                   AND clienti.salone_id = vendite.salone_id
                 LEFT JOIN public.righe_vendita AS righe_vendita
                     ON righe_vendita.vendita_id = vendite.id
+                   AND righe_vendita.salone_id = vendite.salone_id
                 LEFT JOIN public.prodotti AS prodotti
                     ON prodotti.id = righe_vendita.prodotto_id
+                   AND prodotti.salone_id = righe_vendita.salone_id
                 LEFT JOIN public.servizi AS servizi
                     ON servizi.id = righe_vendita.servizio_id
+                   AND servizi.salone_id = righe_vendita.salone_id
+                WHERE vendite.salone_id = $1
                 GROUP BY
                     vendite.id,
                     vendite.data_vendita,
@@ -989,7 +1809,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     clienti.nome,
                     clienti.cognome
                 ORDER BY vendite.data_vendita DESC, vendite.id DESC;
-            `);
+            `, [saloneId]);
 
             rispondiJson(response, 200, risultato.rows);
         } catch (errore) {
@@ -1030,9 +1850,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 `
                     SELECT id
                     FROM public.fornitori
-                    WHERE id = $1;
+                    WHERE id = $1
+                      AND salone_id = $2;
                 `,
-                [dati.fornitoreId]
+                [dati.fornitoreId, saloneId]
             );
 
             if (fornitore.rowCount === 0) {
@@ -1044,9 +1865,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 `
                     SELECT id
                     FROM public.prodotti
-                    WHERE id = ANY($1::integer[]);
+                    WHERE salone_id = $1
+                      AND id = ANY($2::integer[]);
                 `,
-                [prodottiIds]
+                [saloneId, prodottiIds]
             );
             const prodottiPresenti = new Set(prodotti.rows.map((prodotto) => prodotto.id));
 
@@ -1059,19 +1881,19 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             const acquisto = dati.dataAcquisto === null
                 ? await client.query(
                     `
-                        INSERT INTO public.acquisti (fornitore_id, note)
-                        VALUES ($1, $2)
+                        INSERT INTO public.acquisti (salone_id, fornitore_id, note)
+                        VALUES ($1, $2, $3)
                         RETURNING id;
                     `,
-                    [dati.fornitoreId, dati.note]
+                    [saloneId, dati.fornitoreId, dati.note]
                 )
                 : await client.query(
                     `
-                        INSERT INTO public.acquisti (fornitore_id, data_acquisto, note)
-                        VALUES ($1, $2::date, $3)
+                        INSERT INTO public.acquisti (salone_id, fornitore_id, data_acquisto, note)
+                        VALUES ($1, $2, $3::date, $4)
                         RETURNING id;
                     `,
-                    [dati.fornitoreId, dati.dataAcquisto, dati.note]
+                    [saloneId, dati.fornitoreId, dati.dataAcquisto, dati.note]
                 );
 
             const acquistoId = acquisto.rows[0].id;
@@ -1080,10 +1902,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 await client.query(
                     `
                         INSERT INTO public.righe_acquisto
-                            (acquisto_id, prodotto_id, quantita, costo_unitario)
-                        VALUES ($1, $2, $3, $4);
+                            (salone_id, acquisto_id, prodotto_id, quantita, costo_unitario)
+                        VALUES ($1, $2, $3, $4, $5);
                     `,
-                    [acquistoId, riga.prodottoId, riga.quantita, riga.costoUnitario]
+                    [saloneId, acquistoId, riga.prodottoId, riga.quantita, riga.costoUnitario]
                 );
             }
 
@@ -1147,9 +1969,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             const risultato = await pool.query(`
                 SELECT id, nome, prezzo
                 FROM public.servizi
-                WHERE attivo = TRUE
+                WHERE salone_id = $1
+                  AND attivo = TRUE
                 ORDER BY nome;
-            `);
+            `, [saloneId]);
 
             response.writeHead(200, {
                 "Content-Type": "application/json; charset=utf-8"
@@ -1183,11 +2006,12 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const cliente = await pool.query(
                 `
-                    SELECT id, nome, cognome, note, telefono, creata_il
+                    SELECT id, nome, cognome, note, creata_il
                     FROM public.clienti
-                    WHERE id = $1;
+                    WHERE id = $1
+                      AND salone_id = $2;
                 `,
-                [clienteId]
+                [clienteId, saloneId]
             );
 
             if (cliente.rowCount === 0) {
@@ -1207,14 +2031,16 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                             SUM(righe_vendita.quantita * righe_vendita.prezzo_unitario),
                             0
                         ) AS totale
-                    FROM public.vendite AS vendite
-                    LEFT JOIN public.righe_vendita AS righe_vendita
-                        ON righe_vendita.vendita_id = vendite.id
+                        FROM public.vendite AS vendite
+                        LEFT JOIN public.righe_vendita AS righe_vendita
+                            ON righe_vendita.vendita_id = vendite.id
+                           AND righe_vendita.salone_id = vendite.salone_id
                     WHERE vendite.cliente_id = $1
+                      AND vendite.salone_id = $2
                     GROUP BY vendite.id, vendite.data_vendita, vendite.note
                     ORDER BY vendite.data_vendita DESC, vendite.id DESC;
                 `,
-                [clienteId]
+                [clienteId, saloneId]
             );
 
             const righe = vendite.rowCount === 0
@@ -1229,12 +2055,15 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         FROM public.righe_vendita AS righe_vendita
                         LEFT JOIN public.prodotti AS prodotti
                             ON prodotti.id = righe_vendita.prodotto_id
+                           AND prodotti.salone_id = righe_vendita.salone_id
                         LEFT JOIN public.servizi AS servizi
                             ON servizi.id = righe_vendita.servizio_id
-                        WHERE righe_vendita.vendita_id = ANY($1::integer[])
+                           AND servizi.salone_id = righe_vendita.salone_id
+                        WHERE righe_vendita.salone_id = $2
+                          AND righe_vendita.vendita_id = ANY($1::integer[])
                         ORDER BY righe_vendita.vendita_id DESC, righe_vendita.id;
                     `,
-                    [vendite.rows.map((vendita) => vendita.id)]
+                    [vendite.rows.map((vendita) => vendita.id), saloneId]
                 );
 
             const righePerVendita = new Map();
@@ -1267,10 +2096,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
     ) {
         try {
             const risultato = await pool.query(`
-                SELECT id, nome, cognome, note, telefono, creata_il
+                SELECT id, nome, cognome, note, creata_il
                 FROM public.clienti
+                WHERE salone_id = $1
                 ORDER BY cognome, nome;
-            `);
+            `, [saloneId]);
 
             response.writeHead(200, {
                 "Content-Type": "application/json; charset=utf-8"
@@ -1324,24 +2154,6 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         const note =
             typeof dati.note === "string" ? dati.note.trim() : "";
 
-        const telefono =
-            dati.telefono === undefined || dati.telefono === null
-                ? null
-                : typeof dati.telefono === "string"
-                    ? dati.telefono.trim() || null
-                    : undefined;
-
-        if (telefono === undefined) {
-            response.writeHead(400, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            response.end(JSON.stringify({
-                errore: "Il telefono deve essere un testo facoltativo."
-            }));
-            return;
-        }
-
         if (nome === "" || cognome === "") {
             response.writeHead(400, {
                 "Content-Type": "application/json; charset=utf-8"
@@ -1357,11 +2169,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await pool.query(
                 `
-                    INSERT INTO public.clienti (nome, cognome, note, telefono)
+                    INSERT INTO public.clienti (salone_id, nome, cognome, note)
                     VALUES ($1, $2, $3, $4)
-                    RETURNING id, nome, cognome, note, telefono, creata_il;
+                    RETURNING id, nome, cognome, note, creata_il;
                 `,
-                [nome, cognome, note || null, telefono]
+                [saloneId, nome, cognome, note || null]
             );
 
             response.writeHead(201, {
@@ -1417,9 +2229,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     `
                         SELECT id
                         FROM public.clienti
-                        WHERE id = $1;
+                        WHERE id = $1
+                          AND salone_id = $2;
                     `,
-                    [dati.clienteId]
+                    [dati.clienteId, saloneId]
                 );
 
                 if (cliente.rowCount === 0) {
@@ -1462,9 +2275,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     `
                         SELECT id, nome, prezzo_vendita
                         FROM public.prodotti
-                        WHERE id = $1;
+                        WHERE id = $1
+                          AND salone_id = $2;
                     `,
-                    [prodottoId]
+                    [prodottoId, saloneId]
                 );
 
                 if (prodotto.rowCount === 0) {
@@ -1475,34 +2289,42 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     `
                         WITH movimenti_magazzino AS (
                             SELECT
+                                salone_id,
                                 prodotto_id,
                                 quantita_variazione AS variazione
-                            FROM rettifiche_magazzino
+                            FROM public.rettifiche_magazzino
+                            WHERE salone_id = $2
 
                             UNION ALL
 
                             SELECT
+                                salone_id,
                                 prodotto_id,
                                 quantita AS variazione
-                            FROM righe_acquisto
+                            FROM public.righe_acquisto
+                            WHERE salone_id = $2
 
                             UNION ALL
 
                             SELECT
+                                salone_id,
                                 prodotto_id,
                                 -quantita AS variazione
-                            FROM righe_vendita
+                            FROM public.righe_vendita
                             WHERE prodotto_id IS NOT NULL
+                              AND salone_id = $2
                         )
                         SELECT
                             GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::bigint AS giacenza
-                        FROM prodotti
+                        FROM public.prodotti AS prodotti
                         LEFT JOIN movimenti_magazzino
                             ON movimenti_magazzino.prodotto_id = prodotti.id
+                           AND movimenti_magazzino.salone_id = prodotti.salone_id
                         WHERE prodotti.id = $1
+                          AND prodotti.salone_id = $2
                         GROUP BY prodotti.id;
                     `,
-                    [prodottoId]
+                    [prodottoId, saloneId]
                 );
 
                 catalogoProdotti.set(prodottoId, {
@@ -1530,9 +2352,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         SELECT id, prezzo
                         FROM public.servizi
                         WHERE id = $1
+                          AND salone_id = $2
                           AND attivo = TRUE;
                     `,
-                    [servizioId]
+                    [servizioId, saloneId]
                 );
 
                 if (servizio.rowCount === 0) {
@@ -1549,11 +2372,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
             const vendita = await client.query(
                 `
-                    INSERT INTO public.vendite (cliente_id, note)
-                    VALUES ($1, $2)
+                    INSERT INTO public.vendite (salone_id, cliente_id, note)
+                    VALUES ($1, $2, $3)
                     RETURNING id;
                 `,
-                [dati.clienteId, dati.note]
+                [saloneId, dati.clienteId, dati.note]
             );
 
             const venditaId = vendita.rows[0].id;
@@ -1565,10 +2388,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     await client.query(
                         `
                             INSERT INTO public.righe_vendita
-                                (vendita_id, prodotto_id, servizio_id, quantita, prezzo_unitario)
-                            VALUES ($1, $2, NULL, $3, $4);
+                                (salone_id, vendita_id, prodotto_id, servizio_id, quantita, prezzo_unitario)
+                            VALUES ($1, $2, $3, NULL, $4, $5);
                         `,
-                        [venditaId, riga.elementoId, riga.quantita, prodotto.prezzo]
+                        [saloneId, venditaId, riga.elementoId, riga.quantita, prodotto.prezzo]
                     );
                 } else {
                     const servizio = catalogoServizi.get(riga.elementoId);
@@ -1576,10 +2399,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     await client.query(
                         `
                             INSERT INTO public.righe_vendita
-                                (vendita_id, prodotto_id, servizio_id, quantita, prezzo_unitario)
-                            VALUES ($1, NULL, $2, $3, $4);
+                                (salone_id, vendita_id, prodotto_id, servizio_id, quantita, prezzo_unitario)
+                            VALUES ($1, $2, NULL, $3, $4, $5);
                         `,
-                        [venditaId, riga.elementoId, riga.quantita, servizio.prezzo]
+                        [saloneId, venditaId, riga.elementoId, riga.quantita, servizio.prezzo]
                     );
                 }
             }
@@ -1624,12 +2447,12 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await eseguiTransazione(async (client) => {
                 const righe = await client.query(
-                    `DELETE FROM public.righe_vendita WHERE vendita_id = $1 RETURNING id;`,
-                    [venditaId]
+                    `DELETE FROM public.righe_vendita WHERE salone_id = $1 AND vendita_id = $2 RETURNING id;`,
+                    [saloneId, venditaId]
                 );
                 const vendita = await client.query(
-                    `DELETE FROM public.vendite WHERE id = $1 RETURNING id;`,
-                    [venditaId]
+                    `DELETE FROM public.vendite WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                    [saloneId, venditaId]
                 );
 
                 if (vendita.rowCount === 0) {
@@ -1657,8 +2480,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await eseguiTransazione(async (client) => {
                 const acquistoEsistente = await client.query(
-                    `SELECT id FROM public.acquisti WHERE id = $1;`,
-                    [acquistoId]
+                    `SELECT id FROM public.acquisti WHERE salone_id = $1 AND id = $2;`,
+                    [saloneId, acquistoId]
                 );
 
                 if (acquistoEsistente.rowCount === 0) {
@@ -1666,12 +2489,12 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 }
 
                 const righe = await client.query(
-                    `DELETE FROM public.righe_acquisto WHERE acquisto_id = $1 RETURNING id;`,
-                    [acquistoId]
+                    `DELETE FROM public.righe_acquisto WHERE salone_id = $1 AND acquisto_id = $2 RETURNING id;`,
+                    [saloneId, acquistoId]
                 );
                 const acquisto = await client.query(
-                    `DELETE FROM public.acquisti WHERE id = $1 RETURNING id;`,
-                    [acquistoId]
+                    `DELETE FROM public.acquisti WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                    [saloneId, acquistoId]
                 );
 
                 if (acquisto.rowCount === 0) {
@@ -1699,8 +2522,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await eseguiTransazione(async (client) => {
                 const riga = await client.query(
-                    `DELETE FROM public.righe_vendita WHERE id = $1 RETURNING vendita_id;`,
-                    [rigaId]
+                    `DELETE FROM public.righe_vendita WHERE salone_id = $1 AND id = $2 RETURNING vendita_id;`,
+                    [saloneId, rigaId]
                 );
 
                 if (riga.rowCount === 0) {
@@ -1709,15 +2532,15 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
                 const venditaId = riga.rows[0].vendita_id;
                 const restanti = await client.query(
-                    `SELECT COUNT(*)::integer AS conteggio FROM public.righe_vendita WHERE vendita_id = $1;`,
-                    [venditaId]
+                    `SELECT COUNT(*)::integer AS conteggio FROM public.righe_vendita WHERE salone_id = $1 AND vendita_id = $2;`,
+                    [saloneId, venditaId]
                 );
                 let testataCancellata = false;
 
                 if (Number(restanti.rows[0].conteggio) === 0) {
                     const vendita = await client.query(
-                        `DELETE FROM public.vendite WHERE id = $1 RETURNING id;`,
-                        [venditaId]
+                        `DELETE FROM public.vendite WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                        [saloneId, venditaId]
                     );
                     testataCancellata = vendita.rowCount === 1;
                 }
@@ -1746,9 +2569,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     `
                         SELECT id, acquisto_id, prodotto_id, quantita
                         FROM public.righe_acquisto
-                        WHERE id = $1;
+                        WHERE salone_id = $1
+                          AND id = $2;
                     `,
-                    [rigaId]
+                    [saloneId, rigaId]
                 );
 
                 if (rigaDaRimuovere.rowCount === 0) {
@@ -1759,8 +2583,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 const acquistoId = riga.acquisto_id;
 
                 const cancellata = await client.query(
-                    `DELETE FROM public.righe_acquisto WHERE id = $1 RETURNING acquisto_id;`,
-                    [rigaId]
+                    `DELETE FROM public.righe_acquisto WHERE salone_id = $1 AND id = $2 RETURNING acquisto_id;`,
+                    [saloneId, rigaId]
                 );
 
                 if (cancellata.rowCount === 0) {
@@ -1768,15 +2592,15 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 }
 
                 const restanti = await client.query(
-                    `SELECT COUNT(*)::integer AS conteggio FROM public.righe_acquisto WHERE acquisto_id = $1;`,
-                    [acquistoId]
+                    `SELECT COUNT(*)::integer AS conteggio FROM public.righe_acquisto WHERE salone_id = $1 AND acquisto_id = $2;`,
+                    [saloneId, acquistoId]
                 );
                 let testataCancellata = false;
 
                 if (Number(restanti.rows[0].conteggio) === 0) {
                     const acquisto = await client.query(
-                        `DELETE FROM public.acquisti WHERE id = $1 RETURNING id;`,
-                        [acquistoId]
+                        `DELETE FROM public.acquisti WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                        [saloneId, acquistoId]
                     );
                     testataCancellata = acquisto.rowCount === 1;
                 }
@@ -1804,11 +2628,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 const collegamenti = await client.query(
                     `
                         SELECT
-                            (SELECT COUNT(*) FROM public.righe_acquisto WHERE prodotto_id = $1)::integer AS acquisti,
-                            (SELECT COUNT(*) FROM public.righe_vendita WHERE prodotto_id = $1)::integer AS vendite,
-                            (SELECT COUNT(*) FROM public.rettifiche_magazzino WHERE prodotto_id = $1)::integer AS rettifiche;
+                            (SELECT COUNT(*) FROM public.righe_acquisto WHERE salone_id = $1 AND prodotto_id = $2)::integer AS acquisti,
+                            (SELECT COUNT(*) FROM public.righe_vendita WHERE salone_id = $1 AND prodotto_id = $2)::integer AS vendite,
+                            (SELECT COUNT(*) FROM public.rettifiche_magazzino WHERE salone_id = $1 AND prodotto_id = $2)::integer AS rettifiche;
                     `,
-                    [prodottoId]
+                    [saloneId, prodottoId]
                 );
                 const collegamento = collegamenti.rows[0];
 
@@ -1820,8 +2644,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 }
 
                 const prodotto = await client.query(
-                    `DELETE FROM public.prodotti WHERE id = $1 RETURNING id;`,
-                    [prodottoId]
+                    `DELETE FROM public.prodotti WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                    [saloneId, prodottoId]
                 );
 
                 if (prodotto.rowCount === 0) {
@@ -1849,8 +2673,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await eseguiTransazione(async (client) => {
                 const collegamenti = await client.query(
-                    `SELECT COUNT(*)::integer AS vendite FROM public.righe_vendita WHERE servizio_id = $1;`,
-                    [servizioId]
+                    `SELECT COUNT(*)::integer AS vendite FROM public.righe_vendita WHERE salone_id = $1 AND servizio_id = $2;`,
+                    [saloneId, servizioId]
                 );
 
                 if (Number(collegamenti.rows[0].vendite) > 0) {
@@ -1861,8 +2685,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 }
 
                 const servizio = await client.query(
-                    `DELETE FROM public.servizi WHERE id = $1 RETURNING id;`,
-                    [servizioId]
+                    `DELETE FROM public.servizi WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                    [saloneId, servizioId]
                 );
 
                 if (servizio.rowCount === 0) {
@@ -1890,8 +2714,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await eseguiTransazione(async (client) => {
                 const collegamenti = await client.query(
-                    `SELECT COUNT(*)::integer AS vendite FROM public.vendite WHERE cliente_id = $1;`,
-                    [clienteId]
+                    `SELECT COUNT(*)::integer AS vendite FROM public.vendite WHERE salone_id = $1 AND cliente_id = $2;`,
+                    [saloneId, clienteId]
                 );
 
                 if (Number(collegamenti.rows[0].vendite) > 0) {
@@ -1902,8 +2726,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 }
 
                 const cliente = await client.query(
-                    `DELETE FROM public.clienti WHERE id = $1 RETURNING id;`,
-                    [clienteId]
+                    `DELETE FROM public.clienti WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                    [saloneId, clienteId]
                 );
 
                 if (cliente.rowCount === 0) {
@@ -1931,8 +2755,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await eseguiTransazione(async (client) => {
                 const collegamenti = await client.query(
-                    `SELECT COUNT(*)::integer AS acquisti FROM public.acquisti WHERE fornitore_id = $1;`,
-                    [fornitoreId]
+                    `SELECT COUNT(*)::integer AS acquisti FROM public.acquisti WHERE salone_id = $1 AND fornitore_id = $2;`,
+                    [saloneId, fornitoreId]
                 );
 
                 if (Number(collegamenti.rows[0].acquisti) > 0) {
@@ -1943,8 +2767,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 }
 
                 const fornitore = await client.query(
-                    `DELETE FROM public.fornitori WHERE id = $1 RETURNING id;`,
-                    [fornitoreId]
+                    `DELETE FROM public.fornitori WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                    [saloneId, fornitoreId]
                 );
 
                 if (fornitore.rowCount === 0) {
@@ -1972,8 +2796,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         try {
             const risultato = await eseguiTransazione(async (client) => {
                 const rettifica = await client.query(
-                    `DELETE FROM public.rettifiche_magazzino WHERE id = $1 RETURNING id;`,
-                    [rettificaId]
+                    `DELETE FROM public.rettifiche_magazzino WHERE salone_id = $1 AND id = $2 RETURNING id;`,
+                    [saloneId, rettificaId]
                 );
 
                 if (rettifica.rowCount === 0) {

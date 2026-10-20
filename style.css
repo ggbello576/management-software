@@ -6,6 +6,45 @@ body {
     color: #202124;
 }
 
+.barra-sessione {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto 16px;
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #344054;
+    font-size: 14px;
+}
+
+.controlli-sessione {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.controlli-sessione select {
+    padding: 8px 10px;
+    border: 1px solid #cbd3dc;
+    border-radius: 6px;
+    background: #fff;
+    color: #202936;
+    font: inherit;
+}
+
+.pagina-login {
+    max-width: 520px;
+}
+
+.pagina-login .form-gestione {
+    max-width: 420px;
+}
+
 h1 {
     color: #234;
     font-size: 32px;
@@ -279,6 +318,47 @@ th {
     min-height: 24px;
     margin-bottom: 0;
     color: #315c50;
+}
+
+.righe-conteggio {
+    display: grid;
+    gap: 16px;
+}
+
+.riga-conteggio {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 16px;
+    min-width: 0;
+    margin: 0;
+    padding: 18px;
+    border: 1px solid #e1e6eb;
+    border-radius: 9px;
+}
+
+.riga-conteggio legend {
+    grid-column: 1 / -1;
+    padding: 0 7px;
+    color: #202936;
+    font-weight: 700;
+}
+
+.riga-conteggio .campo-gestione:first-of-type {
+    grid-column: span 2;
+}
+
+.azioni-riga-conteggio {
+    display: flex;
+    align-items: end;
+    justify-content: flex-end;
+}
+
+.azioni-conteggio {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
 }
 
 .tabella-gestione-scroll {
@@ -618,6 +698,28 @@ th {
 
     .dati-cliente {
         grid-template-columns: 1fr;
+    }
+
+    .riga-conteggio {
+        grid-template-columns: 1fr;
+    }
+
+    .riga-conteggio .campo-gestione:first-of-type {
+        grid-column: auto;
+    }
+
+    .azioni-riga-conteggio {
+        justify-content: flex-start;
+    }
+
+    .azioni-conteggio {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .azioni-conteggio .pulsante-salva,
+    .azioni-conteggio .pulsante-secondario {
+        width: 100%;
     }
 }
 
