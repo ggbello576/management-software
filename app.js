@@ -2156,7 +2156,7 @@ if (formLogin) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    email: formLogin.elements.email.value.trim(),
+                    nomeUtente: formLogin.elements.nomeUtente.value.trim(),
                     password: formLogin.elements.password.value
                 })
             });

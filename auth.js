@@ -6,7 +6,9 @@ const CSRF_COOKIE_NAME = "gestionale_csrf";
 const SESSION_DURATION_SECONDS = 8 * 60 * 60;
 
 function authEnabled() {
-    return process.env.AUTH_ENABLED === "true";
+    // L'autenticazione è attiva per impostazione predefinita. Può essere
+    // disattivata solo esplicitamente con AUTH_ENABLED=false.
+    return process.env.AUTH_ENABLED !== "false";
 }
 
 function randomToken() {

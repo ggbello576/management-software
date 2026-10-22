@@ -88,6 +88,10 @@ function ruoloRichiesto(method, percorso) {
         return RUOLO_AMMINISTRATORE;
     }
 
+    if (method === "GET" && percorso === "/api/fornitori") {
+        return RUOLO_AMMINISTRATORE;
+    }
+
     if (percorso === "/api/servizi-gestione") {
         return RUOLO_AMMINISTRATORE;
     }
@@ -128,18 +132,20 @@ function payloadLoginValido(dati) {
         throw new ErroreRichiesta("Il contenuto inviato deve essere un oggetto JSON.");
     }
 
-    const email = typeof dati.email === "string" ? dati.email.trim().toLowerCase() : "";
+    const nomeUtente = typeof dati.nomeUtente === "string"
+        ? dati.nomeUtente.trim().toLowerCase()
+        : "";
     const password = typeof dati.password === "string" ? dati.password : "";
 
-    if (email === "" || email.length > 320 || !email.includes("@")) {
-        throw new ErroreRichiesta("Inserisci un indirizzo email valido.");
+    if (nomeUtente === "" || nomeUtente.length > 100) {
+        throw new ErroreRichiesta("Inserisci un nome utente valido.");
     }
 
     if (password.length < 8 || password.length > 1024) {
         throw new ErroreRichiesta("La password non è valida.");
     }
 
-    return { email, password };
+    return { nomeUtente, password };
 }
 
 function payloadSaloneValido(dati) {
@@ -175,6 +181,11 @@ async function leggiMembership(poolClient, utenteId) {
 
 async function autorizzaRichiesta(request, response, percorso) {
     if (!authEnabled()) {
+        console.error(
+            "Autenticazione disabilitata: AUTH_ENABLED=false; richiesta protetta rifiutata.",
+            { metodo: request.method, percorso }
+        );
+
         if (percorso.startsWith("/api/")) {
             rispondiJson(response, 503, {
                 errore: "Autenticazione non disponibile: applicare prima la migrazione multi-salone."
@@ -191,7 +202,10 @@ async function autorizzaRichiesta(request, response, percorso) {
     try {
         sessione = await autenticaRichiesta(pool, request);
     } catch (errore) {
-        console.error("Errore nella verifica della sessione:", errore);
+        console.error("Verifica della sessione fallita:", {
+            codice: errore.code || "NO_CODE",
+            messaggio: errore.message || "Errore PostgreSQL non specificato"
+        });
         rispondiJson(response, 503, {
             errore: "Autenticazione non disponibile: verificare la migrazione multi-salone."
         });
@@ -702,14 +716,14 @@ async function gestisciLogin(request, response) {
             `
                 SELECT id, nome, email, password_hash
                 FROM public.utenti
-                WHERE lower(email) = lower($1)
+                WHERE lower(nome_utente) = $1
                 LIMIT 1;
             `,
-            [dati.email]
+            [dati.nomeUtente]
         );
 
         if (utente.rowCount === 0) {
-            rispondiJson(response, 401, { errore: "Email o password non valide." });
+            rispondiJson(response, 401, { errore: "Nome utente o password non validi." });
             return;
         }
 
@@ -725,7 +739,7 @@ async function gestisciLogin(request, response) {
         }
 
         if (!passwordValida) {
-            rispondiJson(response, 401, { errore: "Email o password non valide." });
+            rispondiJson(response, 401, { errore: "Nome utente o password non validi." });
             return;
         }
 
