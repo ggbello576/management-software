@@ -4,6 +4,8 @@ const { Client } = require("pg");
 const readline = require("node:readline");
 const { hashPassword, verificaPassword } = require("../auth");
 
+const RUOLI_AMMESSI = new Set(["amministratore", "operatore"]);
+
 function domanda(interfaccia, testo) {
     return new Promise((resolve) => {
         interfaccia.question(testo, resolve);
@@ -90,6 +92,16 @@ function normalizzaSaloneId(valore) {
     return saloneId;
 }
 
+function normalizzaRuolo(valore) {
+    const ruolo = valore.trim();
+
+    if (!RUOLI_AMMESSI.has(ruolo)) {
+        throw new Error("Ruolo non valido. Scegli tra amministratore e operatore.");
+    }
+
+    return ruolo;
+}
+
 async function main() {
     const client = new Client();
     const interfaccia = readline.createInterface({
@@ -102,6 +114,7 @@ async function main() {
     let nomeUtente;
     let email;
     let saloneId;
+    let ruolo;
     let password = "";
     let confermaPassword = "";
 
@@ -133,6 +146,13 @@ async function main() {
         if (saloneScelto.rowCount === 0) {
             throw new Error(`Il salone con ID ${saloneId} non esiste.`);
         }
+
+        console.log("Ruoli disponibili:");
+        console.log("  amministratore");
+        console.log("  operatore");
+        ruolo = normalizzaRuolo(
+            await domanda(interfaccia, "Ruolo: ")
+        );
 
         nome = (await domanda(interfaccia, "Nome visualizzato: ")).trim();
         nomeUtente = normalizzaNomeUtente(await domanda(interfaccia, "Nome utente: "));
@@ -226,14 +246,14 @@ async function main() {
         await client.query(
             `
                 INSERT INTO public.utenti_saloni (salone_id, utente_id, ruolo)
-                VALUES ($1, $2, 'amministratore');
+                VALUES ($1, $2, $3);
             `,
-            [saloneId, utente.rows[0].id]
+            [saloneId, utente.rows[0].id, ruolo]
         );
 
         await client.query("COMMIT");
         transazioneAvviata = false;
-        console.log("Account amministratore creato.");
+        console.log(`Account ${ruolo} creato.`);
     } catch (errore) {
         if (transazioneAvviata) {
             try {

@@ -1,8 +1,0 @@
-CREATE TABLE fornitori (
-    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nome TEXT NOT NULL,
-    telefono TEXT,
-    email TEXT,
-    note TEXT,
-    creata_il TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
