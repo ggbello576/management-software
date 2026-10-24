@@ -22,6 +22,10 @@ const percorsiSezioni = new Set([
 
 let shellApplicazione = null;
 let caricamentoSezioneInCorso = false;
+const limiteTestoCella = 35;
+let tooltipCellaTabella = null;
+let popupCellaTabella = null;
+let elementoPrimaDelPopup = null;
 
 function leggiCookie(nome) {
     const voce = document.cookie
@@ -2576,7 +2580,318 @@ async function inizializzaPaginaVisibile() {
     await Promise.allSettled(aggiornamenti);
 }
 
+function cellaTabellaDaElemento(elemento) {
+    if (!(elemento instanceof Element)) {
+        return null;
+    }
+
+    return elemento.closest("td.cella-testo-lungo");
+}
+
+function testoCompletoCella(cella) {
+    return cella?.dataset.testoCompleto || "";
+}
+
+function abilitaPopupCella(cella, testoCompleto) {
+    if (cella.classList.contains("cella-testo-lungo")) {
+        return;
+    }
+
+    cella.classList.add("cella-testo-lungo");
+    cella.dataset.testoCompleto = testoCompleto;
+    cella.dataset.tooltip = testoCompleto;
+    cella.title = testoCompleto;
+    cella.tabIndex = 0;
+    cella.setAttribute("role", "button");
+    cella.setAttribute("aria-haspopup", "dialog");
+    cella.setAttribute("aria-label", `Visualizza il testo completo: ${testoCompleto}`);
+}
+
+function preparaCellaTabella(cella) {
+    if (!(cella instanceof HTMLTableCellElement) || cella.dataset.cellaPreparata === "true") {
+        return;
+    }
+
+    if (cella.classList.contains("tabella-vuota") || cella.colSpan > 1) {
+        return;
+    }
+
+    if (cella.querySelector("button, input, select, textarea")) {
+        return;
+    }
+
+    const testoOriginale = cella.textContent || "";
+    const testoCompleto = testoOriginale.trim();
+
+    if (!testoCompleto) {
+        return;
+    }
+
+    const contenuto = document.createElement("span");
+    contenuto.className = "contenuto-cella-tabella";
+
+    while (cella.firstChild) {
+        contenuto.appendChild(cella.firstChild);
+    }
+
+    cella.appendChild(contenuto);
+    cella.dataset.cellaPreparata = "true";
+
+    if (Array.from(testoCompleto).length > limiteTestoCella) {
+        abilitaPopupCella(cella, testoCompleto);
+        return;
+    }
+
+    requestAnimationFrame(() => {
+        if (contenuto.scrollWidth > contenuto.clientWidth) {
+            abilitaPopupCella(cella, testoCompleto);
+        }
+    });
+}
+
+function preparaCelleTabelle(radice = document) {
+    const celle = [];
+
+    if (radice instanceof HTMLTableCellElement) {
+        celle.push(radice);
+    } else if (radice?.querySelectorAll) {
+        celle.push(...radice.querySelectorAll("td"));
+    }
+
+    celle.forEach(preparaCellaTabella);
+}
+
+function ottieniTooltipCella() {
+    if (tooltipCellaTabella) {
+        return tooltipCellaTabella;
+    }
+
+    tooltipCellaTabella = document.createElement("div");
+    tooltipCellaTabella.id = "tooltip-cella-tabella";
+    tooltipCellaTabella.className = "tooltip-cella-tabella";
+    tooltipCellaTabella.setAttribute("role", "tooltip");
+    tooltipCellaTabella.hidden = true;
+    document.body.appendChild(tooltipCellaTabella);
+    return tooltipCellaTabella;
+}
+
+function nascondiTooltipCella() {
+    if (tooltipCellaTabella) {
+        tooltipCellaTabella.hidden = true;
+    }
+}
+
+function mostraTooltipCella(cella) {
+    const testo = testoCompletoCella(cella);
+
+    if (!testo) {
+        return;
+    }
+
+    const tooltip = ottieniTooltipCella();
+    const rettangolo = cella.getBoundingClientRect();
+
+    tooltip.textContent = testo;
+    tooltip.hidden = false;
+    tooltip.style.left = "0px";
+    tooltip.style.top = "0px";
+
+    const tooltipRettangolo = tooltip.getBoundingClientRect();
+    const margine = 10;
+    let sinistra = rettangolo.left;
+    let alto = rettangolo.bottom + 8;
+
+    if (sinistra + tooltipRettangolo.width > window.innerWidth - margine) {
+        sinistra = window.innerWidth - tooltipRettangolo.width - margine;
+    }
+
+    if (alto + tooltipRettangolo.height > window.innerHeight - margine) {
+        alto = rettangolo.top - tooltipRettangolo.height - 8;
+    }
+
+    tooltip.style.left = `${Math.max(margine, sinistra)}px`;
+    tooltip.style.top = `${Math.max(margine, alto)}px`;
+}
+
+function chiudiPopupCella() {
+    if (!popupCellaTabella || popupCellaTabella.hidden) {
+        return;
+    }
+
+    popupCellaTabella.hidden = true;
+    document.body.classList.remove("tabella-popup-aperta");
+    nascondiTooltipCella();
+
+    if (elementoPrimaDelPopup instanceof HTMLElement && document.contains(elementoPrimaDelPopup)) {
+        elementoPrimaDelPopup.focus();
+    }
+
+    elementoPrimaDelPopup = null;
+}
+
+function ottieniPopupCella() {
+    if (popupCellaTabella) {
+        return popupCellaTabella;
+    }
+
+    const popup = document.createElement("div");
+    const pannello = document.createElement("section");
+    const intestazione = document.createElement("div");
+    const titolo = document.createElement("h2");
+    const chiudi = document.createElement("button");
+    const contenuto = document.createElement("p");
+
+    popup.id = "popup-cella-tabella";
+    popup.className = "popup-cella-tabella";
+    popup.setAttribute("role", "dialog");
+    popup.setAttribute("aria-modal", "true");
+    popup.setAttribute("aria-labelledby", "titolo-popup-cella-tabella");
+    popup.hidden = true;
+
+    pannello.className = "popup-cella-tabella-pannello";
+    intestazione.className = "popup-cella-tabella-intestazione";
+    titolo.id = "titolo-popup-cella-tabella";
+    titolo.textContent = "Contenuto completo";
+    chiudi.type = "button";
+    chiudi.className = "popup-cella-tabella-chiudi";
+    chiudi.textContent = "Chiudi";
+    chiudi.setAttribute("aria-label", "Chiudi il contenuto completo");
+    contenuto.className = "popup-cella-tabella-contenuto";
+
+    chiudi.addEventListener("click", chiudiPopupCella);
+    popup.addEventListener("click", (evento) => {
+        if (evento.target === popup) {
+            chiudiPopupCella();
+        }
+    });
+
+    intestazione.append(titolo, chiudi);
+    pannello.append(intestazione, contenuto);
+    popup.appendChild(pannello);
+    document.body.appendChild(popup);
+
+    popupCellaTabella = popup;
+    return popup;
+}
+
+function apriPopupCella(cella) {
+    const testo = testoCompletoCella(cella);
+
+    if (!testo) {
+        return;
+    }
+
+    const popup = ottieniPopupCella();
+    const contenuto = popup.querySelector(".popup-cella-tabella-contenuto");
+    const chiudi = popup.querySelector(".popup-cella-tabella-chiudi");
+
+    elementoPrimaDelPopup = document.activeElement;
+    contenuto.textContent = testo;
+    popup.hidden = false;
+    document.body.classList.add("tabella-popup-aperta");
+    nascondiTooltipCella();
+    chiudi.focus();
+}
+
+function inizializzaGestoreTabelle() {
+    if (!document.body || document.body.dataset.gestoreTabelle === "true") {
+        return;
+    }
+
+    document.body.dataset.gestoreTabelle = "true";
+    preparaCelleTabelle();
+
+    document.addEventListener("pointerover", (evento) => {
+        if (evento.pointerType && evento.pointerType !== "mouse") {
+            return;
+        }
+
+        const cella = cellaTabellaDaElemento(evento.target);
+
+        if (!cella || (evento.relatedTarget instanceof Node && cella.contains(evento.relatedTarget))) {
+            return;
+        }
+
+        mostraTooltipCella(cella);
+    });
+
+    document.addEventListener("pointerout", (evento) => {
+        const cella = cellaTabellaDaElemento(evento.target);
+
+        if (cella && !(evento.relatedTarget instanceof Node && cella.contains(evento.relatedTarget))) {
+            nascondiTooltipCella();
+        }
+    });
+
+    document.addEventListener("focusin", (evento) => {
+        const cella = cellaTabellaDaElemento(evento.target);
+
+        if (cella) {
+            mostraTooltipCella(cella);
+        }
+    });
+
+    document.addEventListener("focusout", (evento) => {
+        const cella = cellaTabellaDaElemento(evento.target);
+
+        if (cella && !(evento.relatedTarget instanceof Node && cella.contains(evento.relatedTarget))) {
+            nascondiTooltipCella();
+        }
+    });
+
+    document.addEventListener("click", (evento) => {
+        const elemento = evento.target;
+
+        if (!(elemento instanceof Element) || elemento.closest("button, a, input, select, textarea")) {
+            return;
+        }
+
+        const cella = cellaTabellaDaElemento(elemento);
+
+        if (cella) {
+            apriPopupCella(cella);
+        }
+    });
+
+    document.addEventListener("keydown", (evento) => {
+        if (evento.key === "Escape") {
+            chiudiPopupCella();
+            return;
+        }
+
+        if (evento.key !== "Enter" && evento.key !== " ") {
+            return;
+        }
+
+        const cella = cellaTabellaDaElemento(evento.target);
+
+        if (cella) {
+            evento.preventDefault();
+            apriPopupCella(cella);
+        }
+    });
+
+    const osservatoreTabelle = new MutationObserver((mutazioni) => {
+        const contieneTabelle = mutazioni.some((mutazione) => {
+            return [...mutazione.addedNodes].some((nodo) => {
+                return nodo instanceof Element && (
+                    nodo.matches("table, tbody, tr, td") ||
+                    nodo.querySelector("table, tbody, tr, td")
+                );
+            });
+        });
+
+        if (contieneTabelle) {
+            preparaCelleTabelle();
+        }
+    });
+
+    osservatoreTabelle.observe(document.body, { childList: true, subtree: true });
+}
+
 function avviaApplicazione() {
+    inizializzaGestoreTabelle();
+
     if (paginaLogin) {
         inizializzaFormLogin();
         return;
