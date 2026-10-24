@@ -5,7 +5,23 @@ let righeVendita = [];
 let prodottiPerAcquisto = [];
 let righeAcquisto = [];
 const paginaLogin = window.location.pathname === "/login";
+const paginaHome = ["/", "/index.html"].includes(window.location.pathname);
 let sessioneCorrente = null;
+
+const percorsiSezioni = new Set([
+    "/",
+    "/magazzino",
+    "/conteggio-iniziale",
+    "/acquisti",
+    "/vendite",
+    "/clienti",
+    "/prodotti",
+    "/servizi",
+    "/fornitori"
+]);
+
+let shellApplicazione = null;
+let caricamentoSezioneInCorso = false;
 
 function leggiCookie(nome) {
     const voce = document.cookie
@@ -2133,9 +2149,254 @@ document.addEventListener("visibilitychange", () => {
     }
 });
 
-const formLogin = document.querySelector("#form-login");
+function percorsoSezioneValido(percorso) {
+    return percorsiSezioni.has(percorso) || /^\/clienti\/\d+$/.test(percorso);
+}
 
-if (formLogin) {
+function percorsoAttivo(percorso) {
+    if (percorso === "/") {
+        return paginaHome;
+    }
+
+    return percorso === "/clienti" && /^\/clienti\/\d+$/.test(window.location.pathname)
+        ? true
+        : window.location.pathname === percorso;
+}
+
+function creaSidebarApplicazione() {
+    const sidebar = document.createElement("aside");
+    sidebar.className = "dashboard-sidebar";
+    sidebar.setAttribute("aria-label", "Navigazione gestionale");
+
+    const brand = document.createElement("div");
+    brand.className = "dashboard-brand";
+
+    const brandMark = document.createElement("span");
+    brandMark.className = "dashboard-brand-mark";
+    brandMark.textContent = "K";
+
+    const brandText = document.createElement("span");
+    const brandName = document.createElement("strong");
+    brandName.textContent = "KIND SQL";
+    const brandDescription = document.createElement("small");
+    brandDescription.textContent = "salone manager";
+    brandText.append(brandName, brandDescription);
+    brand.append(brandMark, brandText);
+
+    const label = document.createElement("p");
+    label.className = "dashboard-sidebar-label";
+    label.textContent = "Workspace";
+
+    const nav = document.createElement("nav");
+    nav.className = "navigazione dashboard-navigation";
+    nav.setAttribute("aria-label", "Sezioni del gestionale");
+
+    const voci = [
+        ["/", "⌂", "Panoramica"],
+        ["/magazzino", "▦", "Magazzino"],
+        ["/conteggio-iniziale", "#", "Conteggio iniziale"],
+        ["/acquisti", "↙", "Acquisti"],
+        ["/vendite", "↗", "Vendite"],
+        ["/clienti", "♙", "Clienti"],
+        ["/prodotti", "□", "Prodotti"],
+        ["/servizi", "✦", "Servizi"],
+        ["/fornitori", "⌁", "Fornitori"]
+    ];
+
+    for (const [percorso, simbolo, testo] of voci) {
+        const link = document.createElement("a");
+        link.href = percorso;
+        link.className = "pulsante-sezione";
+        link.dataset.percorso = percorso;
+
+        if (percorsoAttivo(percorso)) {
+            link.classList.add("attivo");
+            link.setAttribute("aria-current", "page");
+        }
+
+        const icona = document.createElement("span");
+        icona.className = "nav-icon";
+        icona.setAttribute("aria-hidden", "true");
+        icona.textContent = simbolo;
+
+        const etichetta = document.createElement("span");
+        etichetta.textContent = testo;
+        link.append(icona, etichetta);
+        nav.appendChild(link);
+    }
+
+    const stato = document.createElement("div");
+    stato.className = "dashboard-sidebar-card";
+    const statoTitolo = document.createElement("span");
+    statoTitolo.className = "dashboard-sidebar-card-label";
+    statoTitolo.textContent = "Stato applicazione";
+    const statoValore = document.createElement("strong");
+    statoValore.textContent = "LIVE";
+    const statoNota = document.createElement("span");
+    statoNota.className = "dashboard-sidebar-card-note";
+    statoNota.textContent = "dati sincronizzati";
+    stato.append(statoTitolo, statoValore, statoNota);
+
+    sidebar.append(brand, label, nav, stato);
+    return sidebar;
+}
+
+function aggiornaSezioneAttiva(percorso) {
+    if (!shellApplicazione) {
+        return;
+    }
+
+    for (const link of shellApplicazione.main.querySelectorAll(".dashboard-navigation .pulsante-sezione")) {
+        const attivo = link.dataset.percorso === percorso ||
+            (link.dataset.percorso === "/clienti" && /^\/clienti\/\d+$/.test(percorso));
+        link.classList.toggle("attivo", attivo);
+
+        if (attivo) {
+            link.setAttribute("aria-current", "page");
+        } else {
+            link.removeAttribute("aria-current");
+        }
+    }
+}
+
+function estraiContenutoPagina(html, percorso) {
+    const documento = new DOMParser().parseFromString(html, "text/html");
+    const main = documento.querySelector("main");
+
+    if (!main || documento.querySelector("#form-login")) {
+        throw new Error("La sezione richiesta non è disponibile nella sessione corrente.");
+    }
+
+    const navigazione = main.querySelector(":scope > nav.navigazione");
+    if (navigazione) {
+        navigazione.remove();
+    }
+
+    const frammento = document.createDocumentFragment();
+    for (const figlio of [...main.children]) {
+        frammento.appendChild(figlio);
+    }
+
+    return {
+        frammento,
+        titolo: documento.querySelector("title")?.textContent || "Gestionale del salone",
+        percorso
+    };
+}
+
+async function caricaSezioneApplicazione(percorso, opzioni = {}) {
+    if (!shellApplicazione || !percorsoSezioneValido(percorso) || caricamentoSezioneInCorso) {
+        return;
+    }
+
+    if (window.location.pathname === percorso && !opzioni.forza) {
+        aggiornaSezioneAttiva(percorso);
+        return;
+    }
+
+    caricamentoSezioneInCorso = true;
+    shellApplicazione.main.setAttribute("aria-busy", "true");
+    shellApplicazione.content.classList.add("dashboard-section-loading");
+
+    try {
+        const risposta = await fetch(percorso, {
+            credentials: "same-origin",
+            cache: "no-store",
+            headers: { "X-Requested-With": "GestionaleSPA" }
+        });
+
+        if (!risposta.ok) {
+            throw new Error(`Impossibile caricare la sezione: HTTP ${risposta.status}`);
+        }
+
+        const html = await risposta.text();
+        const contenuto = estraiContenutoPagina(html, percorso);
+
+        shellApplicazione.content.replaceChildren(contenuto.frammento);
+        shellApplicazione.main.classList.toggle("dashboard-home", percorso === "/");
+        shellApplicazione.main.classList.toggle("dashboard-page-shell", percorso !== "/");
+        document.title = contenuto.titolo;
+        aggiornaSezioneAttiva(percorso);
+
+        righeAcquisto = [];
+        righeVendita = [];
+
+        if (opzioni.aggiornaCronologia !== false) {
+            window.history.pushState({ percorso }, "", percorso);
+        }
+
+        await inizializzaPaginaVisibile();
+        window.scrollTo(0, 0);
+    } catch (errore) {
+        console.error("Errore nel cambio sezione:", errore);
+        window.alert("Non è stato possibile aprire questa sezione. Riprova.");
+    } finally {
+        caricamentoSezioneInCorso = false;
+        shellApplicazione.main.removeAttribute("aria-busy");
+        shellApplicazione.content.classList.remove("dashboard-section-loading");
+    }
+}
+
+function gestisciNavigazioneApplicazione(evento) {
+    if (!(evento.target instanceof Element)) {
+        return;
+    }
+
+    const link = evento.target.closest("a[href]");
+
+    if (!link || link.target === "_blank" || evento.metaKey || evento.ctrlKey || evento.shiftKey || evento.altKey) {
+        return;
+    }
+
+    const url = new URL(link.href, window.location.href);
+
+    if (url.origin !== window.location.origin || !percorsoSezioneValido(url.pathname)) {
+        return;
+    }
+
+    evento.preventDefault();
+    caricaSezioneApplicazione(url.pathname);
+}
+
+function creaShellApplicazione() {
+    if (paginaLogin || shellApplicazione) {
+        return;
+    }
+
+    const main = document.querySelector("main");
+
+    if (!main) {
+        return;
+    }
+
+    const navigazione = main.querySelector(":scope > nav.navigazione");
+    if (navigazione) {
+        navigazione.remove();
+    }
+
+    const contenuto = document.createElement("div");
+    contenuto.className = "dashboard-main-content";
+
+    for (const figlio of [...main.children]) {
+        contenuto.appendChild(figlio);
+    }
+
+    main.classList.add("dashboard-main");
+    main.classList.add(paginaHome ? "dashboard-home" : "dashboard-page-shell");
+    main.replaceChildren(creaSidebarApplicazione(), contenuto);
+    main.addEventListener("click", gestisciNavigazioneApplicazione);
+
+    shellApplicazione = { main, content: contenuto };
+}
+
+function inizializzaFormLogin() {
+    const formLogin = document.querySelector("#form-login");
+
+    if (!formLogin || formLogin.dataset.inizializzato === "true") {
+        return;
+    }
+
+    formLogin.dataset.inizializzato = "true";
     formLogin.addEventListener("submit", async (evento) => {
         evento.preventDefault();
 
@@ -2187,117 +2448,151 @@ if (formLogin) {
     });
 }
 
-if (document.querySelector("#corpo-magazzino")) {
-    caricaDatiMagazzino();
-}
+async function inizializzaPaginaVisibile() {
+    const aggiornamenti = [];
 
-if (document.querySelector("#corpo-rettifiche-magazzino")) {
-    caricaRettificheMagazzino();
-}
+    if (document.querySelector("#corpo-magazzino")) {
+        aggiornamenti.push(caricaDatiMagazzino());
+    }
 
-if (document.querySelector("#conteggio-riordino")) {
-    caricaRiepilogoPanoramica();
-}
+    if (document.querySelector("#corpo-rettifiche-magazzino")) {
+        aggiornamenti.push(caricaRettificheMagazzino());
+    }
 
-if (document.querySelector("#corpo-movimenti")) {
-    caricaMovimentiRecenti();
-}
+    if (document.querySelector("#conteggio-riordino")) {
+        aggiornamenti.push(caricaRiepilogoPanoramica());
+    }
 
-if (document.querySelector("#corpo-clienti")) {
-    caricaClienti();
-}
+    if (document.querySelector("#corpo-movimenti")) {
+        aggiornamenti.push(caricaMovimentiRecenti());
+    }
 
-if (document.querySelector("#corpo-vendite-cliente")) {
-    caricaDettaglioCliente();
-}
-const formCliente = document.querySelector("#form-cliente");
+    if (document.querySelector("#corpo-clienti")) {
+        aggiornamenti.push(caricaClienti());
+    }
 
-if (formCliente) {
-    formCliente.addEventListener("submit", gestisciFormCliente);
-}
+    if (document.querySelector("#corpo-vendite-cliente")) {
+        aggiornamenti.push(caricaDettaglioCliente());
+    }
 
-const formProdotto = document.querySelector("#form-prodotto");
+    if (document.querySelector("#corpo-prodotti")) {
+        aggiornamenti.push(caricaGestioneProdotti());
+    }
 
-if (document.querySelector("#corpo-prodotti")) {
-    caricaGestioneProdotti();
-}
+    if (document.querySelector("#corpo-servizi")) {
+        aggiornamenti.push(caricaGestioneServizi());
+    }
 
-if (formProdotto) {
-    formProdotto.addEventListener("submit", gestisciFormProdotto);
-}
+    if (document.querySelector("#corpo-fornitori")) {
+        aggiornamenti.push(caricaGestioneFornitori());
+    }
 
-const formRettificaMagazzino = document.querySelector("#form-rettifica-magazzino");
+    if (document.querySelector("#form-acquisto")) {
+        const formAcquisto = document.querySelector("#form-acquisto");
+        const pulsanteAggiungiRiga = document.querySelector("#aggiungi-riga-acquisto");
+        const pulsanteAggiornaFornitori = document.querySelector("#aggiorna-fornitori");
 
-if (formRettificaMagazzino) {
-    formRettificaMagazzino.addEventListener("submit", gestisciFormRettificaMagazzino);
-}
+        if (formAcquisto.dataset.inizializzato !== "true") {
+            formAcquisto.dataset.inizializzato = "true";
+            pulsanteAggiungiRiga?.addEventListener("click", aggiungiRigaAcquisto);
+            pulsanteAggiornaFornitori?.addEventListener("click", async () => {
+                const messaggio = document.querySelector("#messaggio-acquisto");
 
-const formConteggioIniziale = document.querySelector("#form-conteggio-iniziale");
-
-if (formConteggioIniziale) {
-    document.querySelector("#aggiungi-riga-conteggio").addEventListener(
-        "click",
-        creaRigaConteggioIniziale
-    );
-    creaRigaConteggioIniziale();
-    formConteggioIniziale.addEventListener("submit", gestisciFormConteggioIniziale);
-}
-
-const formServizio = document.querySelector("#form-servizio");
-
-if (document.querySelector("#corpo-servizi")) {
-    caricaGestioneServizi();
-}
-
-if (formServizio) {
-    formServizio.addEventListener("submit", gestisciFormServizio);
-}
-
-const formFornitore = document.querySelector("#form-fornitore");
-
-if (document.querySelector("#corpo-fornitori")) {
-    caricaGestioneFornitori();
-}
-
-if (formFornitore) {
-    formFornitore.addEventListener("submit", gestisciFormFornitore);
-}
-
-const formAcquisto = document.querySelector("#form-acquisto");
-
-if (formAcquisto) {
-    const pulsanteAggiungiRiga = document.querySelector("#aggiungi-riga-acquisto");
-    const pulsanteAggiornaFornitori = document.querySelector("#aggiorna-fornitori");
-
-    pulsanteAggiungiRiga.addEventListener("click", aggiungiRigaAcquisto);
-    pulsanteAggiornaFornitori.addEventListener("click", async () => {
-        const messaggio = document.querySelector("#messaggio-acquisto");
-
-        try {
-            await caricaFornitoriPerAcquisto();
-            messaggio.textContent = "Elenco fornitori aggiornato.";
-        } catch (errore) {
-            messaggio.textContent = errore.message;
+                try {
+                    await caricaFornitoriPerAcquisto();
+                    messaggio.textContent = "Elenco fornitori aggiornato.";
+                } catch (errore) {
+                    messaggio.textContent = errore.message;
+                }
+            });
+            formAcquisto.addEventListener("submit", gestisciFormAcquisto);
         }
-    });
-    formAcquisto.addEventListener("submit", gestisciFormAcquisto);
 
-    caricaDatiAcquisto();
+        aggiornamenti.push(caricaDatiAcquisto());
+    } else if (document.querySelector("#corpo-acquisti")) {
+        aggiornamenti.push(caricaElencoAcquisti());
+    }
+
+    if (document.querySelector("#form-vendita")) {
+        const formVendita = document.querySelector("#form-vendita");
+        const tipoElemento = document.querySelector("#tipo-elemento");
+        const pulsanteAggiungi = document.querySelector("#aggiungi-riga");
+
+        if (formVendita.dataset.inizializzato !== "true") {
+            formVendita.dataset.inizializzato = "true";
+            tipoElemento?.addEventListener("change", aggiornaElencoElementi);
+            pulsanteAggiungi?.addEventListener("click", aggiungiRigaVendita);
+            formVendita.addEventListener("submit", gestisciFormVendita);
+        }
+
+        aggiornamenti.push(caricaDatiVendita());
+    }
+
+    if (document.querySelector("#corpo-vendite")) {
+        aggiornamenti.push(caricaElencoVendite());
+    }
+
+    const formCliente = document.querySelector("#form-cliente");
+    if (formCliente && formCliente.dataset.inizializzato !== "true") {
+        formCliente.dataset.inizializzato = "true";
+        formCliente.addEventListener("submit", gestisciFormCliente);
+    }
+
+    const formProdotto = document.querySelector("#form-prodotto");
+    if (formProdotto && formProdotto.dataset.inizializzato !== "true") {
+        formProdotto.dataset.inizializzato = "true";
+        formProdotto.addEventListener("submit", gestisciFormProdotto);
+    }
+
+    const formRettificaMagazzino = document.querySelector("#form-rettifica-magazzino");
+    if (formRettificaMagazzino && formRettificaMagazzino.dataset.inizializzato !== "true") {
+        formRettificaMagazzino.dataset.inizializzato = "true";
+        formRettificaMagazzino.addEventListener("submit", gestisciFormRettificaMagazzino);
+    }
+
+    const formConteggioIniziale = document.querySelector("#form-conteggio-iniziale");
+    if (formConteggioIniziale && formConteggioIniziale.dataset.inizializzato !== "true") {
+        formConteggioIniziale.dataset.inizializzato = "true";
+        document.querySelector("#aggiungi-riga-conteggio")?.addEventListener(
+            "click",
+            creaRigaConteggioIniziale
+        );
+        creaRigaConteggioIniziale();
+        formConteggioIniziale.addEventListener("submit", gestisciFormConteggioIniziale);
+    }
+
+    const formServizio = document.querySelector("#form-servizio");
+    if (formServizio && formServizio.dataset.inizializzato !== "true") {
+        formServizio.dataset.inizializzato = "true";
+        formServizio.addEventListener("submit", gestisciFormServizio);
+    }
+
+    const formFornitore = document.querySelector("#form-fornitore");
+    if (formFornitore && formFornitore.dataset.inizializzato !== "true") {
+        formFornitore.dataset.inizializzato = "true";
+        formFornitore.addEventListener("submit", gestisciFormFornitore);
+    }
+
+    await Promise.allSettled(aggiornamenti);
 }
 
-const formVendita = document.querySelector("#form-vendita");
+function avviaApplicazione() {
+    if (paginaLogin) {
+        inizializzaFormLogin();
+        return;
+    }
 
-if (formVendita) {
-    const tipoElemento = document.querySelector("#tipo-elemento");
-    const pulsanteAggiungi = document.querySelector("#aggiungi-riga");
-
-    tipoElemento.addEventListener("change", aggiornaElencoElementi);
-    pulsanteAggiungi.addEventListener("click", aggiungiRigaVendita);
-    formVendita.addEventListener("submit", gestisciFormVendita);
-
-    caricaDatiVendita();
+    creaShellApplicazione();
+    inizializzaPaginaVisibile();
 }
 
-if (document.querySelector("#corpo-vendite")) {
-    caricaElencoVendite();
-}
+window.addEventListener("popstate", () => {
+    if (shellApplicazione && percorsoSezioneValido(window.location.pathname)) {
+        caricaSezioneApplicazione(window.location.pathname, {
+            aggiornaCronologia: false,
+            forza: true
+        });
+    }
+});
+
+avviaApplicazione();
