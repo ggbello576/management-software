@@ -1324,3 +1324,90 @@ select:disabled {
 .dashboard-main-content textarea {
     border-radius: 4px;
 }
+
+/* I menu a tendina restano coordinati ai campi delle altre sezioni, non ai pulsanti retro. */
+.dashboard-main-content select {
+    min-height: 46px;
+    padding: 10px 13px;
+    border: 1px solid var(--bordo-forte);
+    border-radius: 10px;
+    background: var(--bianco);
+    color: var(--inchiostro);
+    font-family: inherit;
+    font-weight: 400;
+    box-shadow: none;
+    transform: none;
+}
+
+.dashboard-main-content select:hover {
+    border-color: var(--verde);
+}
+
+.dashboard-main-content select:focus {
+    border-color: var(--verde);
+    box-shadow: 0 0 0 4px rgb(47 115 183 / 12%);
+    outline: 0;
+}
+
+.dashboard-main-content select:disabled {
+    background: var(--menta);
+    color: var(--testo-secondario);
+}
+
+/* Note compatte: restano dentro il flusso dell'operazione e non creano una scheda isolata. */
+.dashboard-main-content .vendita-finalizzazione {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 12px 18px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--bordo-forte);
+}
+
+.dashboard-main-content .note-vendita-compatto {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+
+.dashboard-main-content .note-vendita-compatto label,
+.dashboard-main-content .campo-gestione-note label {
+    margin-bottom: 0;
+    color: var(--testo-secondario);
+    font-family: "Courier New", monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.dashboard-main-content .note-vendita-compatto textarea,
+.dashboard-main-content .campo-gestione-note textarea {
+    min-height: 68px;
+    resize: vertical;
+}
+
+.dashboard-main-content .vendita-finalizzazione #messaggio-vendita {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.dashboard-main-content .vendita-finalizzazione .pulsante-salva {
+    min-width: 188px;
+    margin: 0;
+}
+
+.dashboard-main-content .campo-gestione-note textarea {
+    min-height: 68px;
+}
+
+@media (max-width: 700px) {
+    .dashboard-main-content .vendita-finalizzazione {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-main-content .vendita-finalizzazione .pulsante-salva {
+        width: 100%;
+    }
+}
