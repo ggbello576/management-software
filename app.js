@@ -11,6 +11,7 @@ let sessioneCorrente = null;
 const percorsiSezioni = new Set([
     "/",
     "/magazzino",
+    "/rettifiche-magazzino",
     "/conteggio-iniziale",
     "/acquisti",
     "/vendite",
@@ -580,6 +581,19 @@ function fetchDati(url, opzioni = {}) {
 async function caricaDatiMagazzino() {
     const corpoTabella = document.querySelector("#corpo-magazzino");
     const contatore = document.querySelector("#conteggio-riordino");
+
+    // Nella pagina Rettifiche serve il catalogo completo per il selettore,
+    // ma non esiste una tabella Magazzino da aggiornare con una pagina separata.
+    if (!corpoTabella && document.querySelector("#prodotto-rettifica")) {
+        try {
+            popolaProdottiRettifica(await caricaTutteLePagine("/api/magazzino"));
+        } catch (errore) {
+            console.error("Errore nel caricamento dei prodotti per la rettifica:", errore);
+            popolaProdottiRettifica([]);
+        }
+        return;
+    }
+
     const stato = configuraListaPaginata(
         "corpo-magazzino",
         "prodotto o marca",
@@ -2548,10 +2562,13 @@ async function gestisciFormVendita(evento) {
     }
 }
 
-async function aggiornaDatiPaginaVisibile() {
+function raccogliAggiornamentiSezioniPrincipali() {
     const aggiornamenti = [];
 
-    if (document.querySelector("#corpo-magazzino")) {
+    if (
+        document.querySelector("#corpo-magazzino") ||
+        document.querySelector("#form-rettifica-magazzino")
+    ) {
         aggiornamenti.push(caricaDatiMagazzino());
     }
 
@@ -2586,6 +2603,12 @@ async function aggiornaDatiPaginaVisibile() {
     if (document.querySelector("#corpo-fornitori")) {
         aggiornamenti.push(caricaGestioneFornitori());
     }
+
+    return aggiornamenti;
+}
+
+async function aggiornaDatiPaginaVisibile() {
+    const aggiornamenti = raccogliAggiornamentiSezioniPrincipali();
 
     if (document.querySelector("#form-acquisto")) {
         aggiornamenti.push(caricaDatiAcquisto());
@@ -2661,6 +2684,7 @@ function creaSidebarApplicazione() {
     const voci = [
         ["/", "⌂", "Panoramica"],
         ["/magazzino", "▦", "Magazzino"],
+        ["/rettifiche-magazzino", "↕", "Rettifiche magazzino"],
         ["/acquisti", "↙", "Acquisti"],
         ["/vendite", "↗", "Vendite"],
         ["/clienti", "♙", "Clienti"],
@@ -2917,43 +2941,7 @@ function inizializzaFormLogin() {
 }
 
 async function inizializzaPaginaVisibile() {
-    const aggiornamenti = [];
-
-    if (document.querySelector("#corpo-magazzino")) {
-        aggiornamenti.push(caricaDatiMagazzino());
-    }
-
-    if (document.querySelector("#corpo-rettifiche-magazzino")) {
-        aggiornamenti.push(caricaRettificheMagazzino());
-    }
-
-    if (document.querySelector("#conteggio-riordino")) {
-        aggiornamenti.push(caricaRiepilogoPanoramica());
-    }
-
-    if (document.querySelector("#corpo-movimenti")) {
-        aggiornamenti.push(caricaMovimentiRecenti());
-    }
-
-    if (document.querySelector("#corpo-clienti")) {
-        aggiornamenti.push(caricaClienti());
-    }
-
-    if (document.querySelector("#corpo-vendite-cliente")) {
-        aggiornamenti.push(caricaDettaglioCliente());
-    }
-
-    if (document.querySelector("#corpo-prodotti")) {
-        aggiornamenti.push(caricaGestioneProdotti());
-    }
-
-    if (document.querySelector("#corpo-servizi")) {
-        aggiornamenti.push(caricaGestioneServizi());
-    }
-
-    if (document.querySelector("#corpo-fornitori")) {
-        aggiornamenti.push(caricaGestioneFornitori());
-    }
+    const aggiornamenti = raccogliAggiornamentiSezioniPrincipali();
 
     if (document.querySelector("#form-acquisto")) {
         const formAcquisto = document.querySelector("#form-acquisto");

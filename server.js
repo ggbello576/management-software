@@ -24,6 +24,7 @@ const MOTIVO_GIACENZA_INIZIALE = "Giacenza iniziale";
 const PAGINE_PROTETTE = new Set([
     "/",
     "/magazzino",
+    "/rettifiche-magazzino",
     "/conteggio-iniziale",
     "/prodotti",
     "/servizi",
@@ -1086,6 +1087,16 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 });
 
                 response.end(fs.readFileSync("magazzino.html", "utf8"));
+
+                }   else if (
+            request.method === "GET" &&
+            request.url === "/rettifiche-magazzino"
+            ) {
+                response.writeHead(200, {
+                    "Content-Type": "text/html; charset=utf-8"
+                });
+
+                response.end(fs.readFileSync("rettifiche-magazzino.html", "utf8"));
 
                 }   else if (
             request.method === "GET" &&

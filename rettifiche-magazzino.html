@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rettifiche magazzino - Gestionale del salone</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <main class="contenitore pagina-gestione">
+        <header class="intestazione">
+            <div>
+                <p class="soprattitolo">GESTIONALE DEL SALONE</p>
+                <h1>Rettifiche di magazzino</h1>
+                <p class="descrizione-gestione">
+                    Registra variazioni positive o negative per correggere la giacenza di un prodotto.
+                </p>
+                <a href="/">Torna alla panoramica</a>
+            </div>
+        </header>
+
+        <nav class="navigazione" aria-label="Navigazione principale">
+            <a href="/" class="pulsante-sezione">Panoramica</a>
+            <a href="/magazzino" class="pulsante-sezione">Magazzino</a>
+            <a href="/rettifiche-magazzino" class="pulsante-sezione attivo">Rettifiche magazzino</a>
+            <a href="/acquisti" class="pulsante-sezione">Acquisti</a>
+            <a href="/vendite" class="pulsante-sezione">Vendite</a>
+            <a href="/clienti" class="pulsante-sezione">Clienti</a>
+            <a href="/prodotti" class="pulsante-sezione">Prodotti</a>
+            <a href="/servizi" class="pulsante-sezione">Servizi</a>
+            <a href="/fornitori" class="pulsante-sezione">Fornitori</a>
+            <a href="/conteggio-iniziale" class="pulsante-sezione">Conteggio iniziale</a>
+        </nav>
+
+        <section class="scheda-gestione">
+            <h2>Registra una rettifica</h2>
+            <p class="testo-secondario">
+                La variazione può essere positiva o negativa, ma non può essere zero.
+            </p>
+
+            <form id="form-rettifica-magazzino" class="form-gestione">
+                <div class="campi-gestione">
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="prodotto-rettifica">Prodotto</label>
+                        <select id="prodotto-rettifica" name="prodottoId" required>
+                            <option value="">Caricamento prodotti…</option>
+                        </select>
+                    </div>
+
+                    <div class="campo-gestione">
+                        <label for="quantita-rettifica">Variazione quantità</label>
+                        <input
+                            type="number"
+                            id="quantita-rettifica"
+                            name="quantitaVariazione"
+                            min="-2147483648"
+                            max="2147483647"
+                            step="1"
+                            required
+                        >
+                    </div>
+
+                    <div class="campo-gestione campo-gestione-largo">
+                        <label for="motivo-rettifica">Motivo</label>
+                        <input type="text" id="motivo-rettifica" name="motivo" maxlength="1000" required>
+                    </div>
+                </div>
+
+                <button type="submit" class="pulsante-salva">Registra rettifica</button>
+            </form>
+
+            <p id="messaggio-rettifica-magazzino" class="messaggio-gestione" aria-live="polite"></p>
+        </section>
+
+        <section class="scheda-gestione">
+            <h2>Storico rettifiche</h2>
+
+            <div class="tabella-gestione-scroll">
+                <table class="tabella-gestione">
+                    <thead>
+                        <tr>
+                            <th scope="col">Data</th>
+                            <th scope="col">Prodotto</th>
+                            <th scope="col">Variazione</th>
+                            <th scope="col">Motivo</th>
+                            <th scope="col">Azione</th>
+                        </tr>
+                    </thead>
+                    <tbody id="corpo-rettifiche-magazzino">
+                        <tr>
+                            <td colspan="5" class="tabella-vuota">Caricamento rettifiche…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+    <script src="/app.js" defer></script>
+</body>
+</html>

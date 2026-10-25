@@ -20,6 +20,7 @@
         <nav class="navigazione" aria-label="Navigazione principale">
             <a href="/" class="pulsante-sezione">Panoramica</a>
             <a href="/magazzino" class="pulsante-sezione attivo">Magazzino</a>
+            <a href="/rettifiche-magazzino" class="pulsante-sezione">Rettifiche magazzino</a>
             <a href="/acquisti" class="pulsante-sezione">Acquisti</a>
             <a href="/vendite" class="pulsante-sezione">Vendite</a>
             <a href="/clienti" class="pulsante-sezione">Clienti</a>
@@ -45,65 +46,6 @@
 
                     <tbody id="corpo-magazzino">
                         <!-- JavaScript inserirà qui i prodotti -->
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <section class="scheda-gestione">
-            <h2>Rettifiche di magazzino</h2>
-            <p class="testo-secondario">
-                Registra una variazione per un prodotto già presente. La quantità può essere positiva o negativa, ma non zero.
-            </p>
-
-            <form id="form-rettifica-magazzino" class="form-gestione">
-                <div class="campi-gestione">
-                    <div class="campo-gestione campo-gestione-largo">
-                        <label for="prodotto-rettifica">Prodotto</label>
-                        <select id="prodotto-rettifica" name="prodottoId" required>
-                            <option value="">Caricamento prodotti…</option>
-                        </select>
-                    </div>
-
-                    <div class="campo-gestione">
-                        <label for="quantita-rettifica">Variazione quantità</label>
-                        <input
-                            type="number"
-                            id="quantita-rettifica"
-                            name="quantitaVariazione"
-                            min="-2147483648"
-                            max="2147483647"
-                            step="1"
-                            required
-                        >
-                    </div>
-
-                    <div class="campo-gestione campo-gestione-largo">
-                        <label for="motivo-rettifica">Motivo</label>
-                        <input type="text" id="motivo-rettifica" name="motivo" maxlength="1000" required>
-                    </div>
-                </div>
-
-                <button type="submit" class="pulsante-salva">Registra rettifica</button>
-            </form>
-
-            <p id="messaggio-rettifica-magazzino" class="messaggio-gestione" aria-live="polite"></p>
-
-            <div class="tabella-gestione-scroll">
-                <table class="tabella-gestione">
-                    <thead>
-                        <tr>
-                            <th scope="col">Data</th>
-                            <th scope="col">Prodotto</th>
-                            <th scope="col">Variazione</th>
-                            <th scope="col">Motivo</th>
-                            <th scope="col">Azione</th>
-                        </tr>
-                    </thead>
-                    <tbody id="corpo-rettifiche-magazzino">
-                        <tr>
-                            <td colspan="5" class="tabella-vuota">Caricamento rettifiche…</td>
-                        </tr>
                     </tbody>
                 </table>
             </div>
