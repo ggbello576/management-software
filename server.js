@@ -2,6 +2,7 @@
 require("dotenv").config();//carica la libreria dotenv, .config()cerca e legge .env
 const http = require("node:http"); // prende il modulo http da node
 const fs = require("node:fs"); //fs modulo per lavorare con i file
+const { version: versioneApplicazione } = require("./package.json");
 const pool = require("./db");//esportiamo l'oggetto pool ,il suo file
 const {
     SESSION_DURATION_SECONDS,
@@ -87,7 +88,7 @@ function ruoloRichiesto(method, percorso) {
         "/api/giacenze-iniziali",
         "/api/servizi-gestione",
         "/api/fornitori"
-    ].includes(percorso)) || (method === "PATCH" && /^\/api\/prodotti\/\d+$/.test(percorso))) {
+    ].includes(percorso)) || (method === "PATCH" && /^\/api\/(prodotti|servizi|clienti|fornitori)\/\d+$/.test(percorso))) {
         return RUOLO_AMMINISTRATORE;
     }
 
@@ -1125,6 +1126,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         return;
     }
 
+    if (request.method === "GET" && percorso === "/api/versione") {
+        rispondiJson(response, 200, { version: versioneApplicazione });
+        return;
+    }
+
     if (percorso === "/api/sessione" && request.method === "GET") {
         const sessione = await autorizzaRichiesta(request, response, percorso);
 
@@ -1933,6 +1939,61 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             });
         }
     } else if (
+        request.method === "PATCH" &&
+        /^\/api\/servizi\/\d+$/.test(percorso)
+    ) {
+        const servizioId = Number(percorso.split("/").pop());
+
+        if (!idInteroValido(servizioId)) {
+            rispondiJson(response, 400, { errore: "L'ID del servizio non è valido." });
+            return;
+        }
+
+        let dati;
+
+        try {
+            dati = validaPayloadServizio(await leggiJson(request));
+        } catch (errore) {
+            const messaggio = errore instanceof ErroreRichiesta
+                ? errore.message
+                : "Il contenuto inviato non è un JSON valido.";
+
+            rispondiJson(response, 400, { errore: messaggio });
+            return;
+        }
+
+        try {
+            const risultato = await pool.query(
+                `
+                    UPDATE public.servizi
+                    SET nome = $2,
+                        prezzo = $3
+                    WHERE salone_id = $1
+                      AND id = $4
+                    RETURNING id, nome, prezzo, attivo;
+                `,
+                [saloneId, dati.nome, dati.prezzo, servizioId]
+            );
+
+            if (risultato.rowCount === 0) {
+                throw new ErroreRichiesta("Il servizio richiesto non esiste.", 404);
+            }
+
+            rispondiJson(response, 200, risultato.rows[0]);
+        } catch (errore) {
+            console.error("Errore nell'aggiornamento del servizio:", errore);
+            if (errore instanceof ErroreRichiesta) {
+                rispondiJson(response, errore.stato, { errore: errore.message });
+            } else {
+                rispondiJson(response, 500, {
+                    errore: messaggioErroreDatabase(
+                        errore,
+                        "Impossibile aggiornare il servizio."
+                    )
+                });
+            }
+        }
+    } else if (
         request.method === "GET" &&
         percorso === "/api/fornitori"
     ) {
@@ -1995,6 +2056,63 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     "Impossibile salvare il fornitore."
                 )
             });
+        }
+    } else if (
+        request.method === "PATCH" &&
+        /^\/api\/fornitori\/\d+$/.test(percorso)
+    ) {
+        const fornitoreId = Number(percorso.split("/").pop());
+
+        if (!idInteroValido(fornitoreId)) {
+            rispondiJson(response, 400, { errore: "L'ID del fornitore non è valido." });
+            return;
+        }
+
+        let dati;
+
+        try {
+            dati = validaPayloadFornitore(await leggiJson(request));
+        } catch (errore) {
+            const messaggio = errore instanceof ErroreRichiesta
+                ? errore.message
+                : "Il contenuto inviato non è un JSON valido.";
+
+            rispondiJson(response, 400, { errore: messaggio });
+            return;
+        }
+
+        try {
+            const risultato = await pool.query(
+                `
+                    UPDATE public.fornitori
+                    SET nome = $2,
+                        telefono = $3,
+                        email = $4,
+                        note = $5
+                    WHERE salone_id = $1
+                      AND id = $6
+                    RETURNING id, nome, telefono, email, note, creata_il;
+                `,
+                [saloneId, dati.nome, dati.telefono, dati.email, dati.note, fornitoreId]
+            );
+
+            if (risultato.rowCount === 0) {
+                throw new ErroreRichiesta("Il fornitore richiesto non esiste.", 404);
+            }
+
+            rispondiJson(response, 200, risultato.rows[0]);
+        } catch (errore) {
+            console.error("Errore nell'aggiornamento del fornitore:", errore);
+            if (errore instanceof ErroreRichiesta) {
+                rispondiJson(response, errore.stato, { errore: errore.message });
+            } else {
+                rispondiJson(response, 500, {
+                    errore: messaggioErroreDatabase(
+                        errore,
+                        "Impossibile aggiornare il fornitore."
+                    )
+                });
+            }
         }
     } else if (
         request.method === "GET" &&
@@ -2527,6 +2645,79 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             response.end(JSON.stringify({
                 errore: "Errore interno del server."
             }));
+        }
+    } else if (
+        request.method === "PATCH" &&
+        /^\/api\/clienti\/\d+$/.test(percorso)
+    ) {
+        const clienteId = Number(percorso.split("/").pop());
+
+        if (!idInteroValido(clienteId)) {
+            rispondiJson(response, 400, { errore: "L'ID della cliente non è valido." });
+            return;
+        }
+
+        let dati;
+
+        try {
+            const corpo = await leggiJson(request);
+            const nome = typeof corpo?.nome === "string" ? corpo.nome.trim() : "";
+            const cognome = typeof corpo?.cognome === "string" ? corpo.cognome.trim() : "";
+            const note = corpo?.note === undefined || corpo.note === null
+                ? null
+                : typeof corpo.note === "string"
+                    ? corpo.note.trim() || null
+                    : undefined;
+
+            if (nome === "" || cognome === "") {
+                throw new ErroreRichiesta("Nome e cognome sono obbligatori.");
+            }
+
+            if (note === undefined) {
+                throw new ErroreRichiesta("Le note devono essere un testo facoltativo.");
+            }
+
+            dati = { nome, cognome, note };
+        } catch (errore) {
+            const messaggio = errore instanceof ErroreRichiesta
+                ? errore.message
+                : "Il contenuto inviato non è un JSON valido.";
+
+            rispondiJson(response, 400, { errore: messaggio });
+            return;
+        }
+
+        try {
+            const risultato = await pool.query(
+                `
+                    UPDATE public.clienti
+                    SET nome = $2,
+                        cognome = $3,
+                        note = $4
+                    WHERE salone_id = $1
+                      AND id = $5
+                    RETURNING id, nome, cognome, note, creata_il;
+                `,
+                [saloneId, dati.nome, dati.cognome, dati.note, clienteId]
+            );
+
+            if (risultato.rowCount === 0) {
+                throw new ErroreRichiesta("La cliente richiesta non esiste.", 404);
+            }
+
+            rispondiJson(response, 200, risultato.rows[0]);
+        } catch (errore) {
+            console.error("Errore nell'aggiornamento della cliente:", errore);
+            if (errore instanceof ErroreRichiesta) {
+                rispondiJson(response, errore.stato, { errore: errore.message });
+            } else {
+                rispondiJson(response, 500, {
+                    errore: messaggioErroreDatabase(
+                        errore,
+                        "Impossibile aggiornare la cliente."
+                    )
+                });
+            }
         }
     } else if (
         request.method === "POST" &&
