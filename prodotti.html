@@ -37,7 +37,7 @@
         <section class="scheda-gestione">
             <h2>Registra un prodotto</h2>
             <p class="testo-secondario">
-                Il prezzo di acquisto viene registrato nella gestione degli acquisti.
+                Il costo degli acquisti reali viene registrato nella gestione degli acquisti; puoi indicare qui un costo di riferimento quando non esiste ancora un acquisto.
             </p>
 
             <form id="form-prodotto" class="form-gestione">
@@ -65,6 +65,19 @@
                     </div>
 
                     <div class="campo-gestione">
+                        <label for="costo-unitario-indicativo-prodotto">Costo unitario d'acquisto indicativo</label>
+                        <input
+                            type="number"
+                            id="costo-unitario-indicativo-prodotto"
+                            name="costoUnitarioIndicativo"
+                            min="0"
+                            max="99999999.99"
+                            step="0.01"
+                            placeholder="Facoltativo"
+                        >
+                    </div>
+
+                    <div class="campo-gestione">
                         <label for="soglia-riordino-prodotto">Soglia di riordino</label>
                         <input
                             type="number"
@@ -78,7 +91,12 @@
                     </div>
                 </div>
 
-                <button type="submit" class="pulsante-salva">Salva prodotto</button>
+                <div class="azioni-form-prodotto">
+                    <button type="button" id="annulla-modifica-prodotto" class="pulsante-secondario" hidden>
+                        Annulla modifica
+                    </button>
+                    <button type="submit" class="pulsante-salva">Salva prodotto</button>
+                </div>
             </form>
 
             <p id="messaggio-prodotto" class="messaggio-gestione" aria-live="polite"></p>
@@ -94,6 +112,7 @@
                             <th scope="col">Nome</th>
                             <th scope="col">Marca</th>
                             <th scope="col">Prezzo di vendita</th>
+                            <th scope="col">Costo d'acquisto indicativo</th>
                             <th scope="col">Soglia di riordino</th>
                             <th scope="col">Giacenza</th>
                             <th scope="col">Azione</th>
@@ -102,7 +121,7 @@
 
                     <tbody id="corpo-prodotti">
                         <tr>
-                            <td colspan="6" class="tabella-vuota">Caricamento prodotti…</td>
+                            <td colspan="7" class="tabella-vuota">Caricamento prodotti…</td>
                         </tr>
                     </tbody>
                 </table>

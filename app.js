@@ -4,6 +4,7 @@ let serviziPerVendita = [];
 let righeVendita = [];
 let prodottiPerAcquisto = [];
 let righeAcquisto = [];
+let prodottoInModificaId = null;
 const paginaLogin = window.location.pathname === "/login";
 const paginaHome = ["/", "/index.html"].includes(window.location.pathname);
 let sessioneCorrente = null;
@@ -52,7 +53,8 @@ function normalizzaRispostaLista(risultato) {
             limite: LIMITE_LISTE,
             totale: 0,
             pagine: 0
-        }
+        },
+        riepilogo: risultato?.riepilogo
     };
 }
 
@@ -448,6 +450,15 @@ function creaRigaConteggioIniziale() {
         valore: ""
     });
     aggiungiCampoConteggio(riga, {
+        nome: "costoUnitarioIndicativo",
+        etichetta: "Costo unitario d'acquisto indicativo",
+        tipo: "number",
+        min: "0",
+        max: "99999999.99",
+        step: "0.01",
+        valore: ""
+    });
+    aggiungiCampoConteggio(riga, {
         nome: "sogliaRiordino",
         etichetta: "Soglia di riordino",
         tipo: "number",
@@ -493,6 +504,9 @@ function leggiRigheConteggioIniziale() {
         nome: riga.querySelector('[data-campo-conteggio="nome"]').value.trim(),
         marca: riga.querySelector('[data-campo-conteggio="marca"]').value.trim() || null,
         prezzoVendita: Number(riga.querySelector('[data-campo-conteggio="prezzoVendita"]').value),
+        costoUnitarioIndicativo: riga.querySelector('[data-campo-conteggio="costoUnitarioIndicativo"]').value === ""
+            ? null
+            : Number(riga.querySelector('[data-campo-conteggio="costoUnitarioIndicativo"]').value),
         sogliaRiordino: Number(riga.querySelector('[data-campo-conteggio="sogliaRiordino"]').value),
         quantitaContata: Number(riga.querySelector('[data-campo-conteggio="quantitaContata"]').value)
     }));
@@ -581,6 +595,8 @@ function fetchDati(url, opzioni = {}) {
 async function caricaDatiMagazzino() {
     const corpoTabella = document.querySelector("#corpo-magazzino");
     const contatore = document.querySelector("#conteggio-riordino");
+    const valoreStimato = document.querySelector("#valore-stimato-magazzino");
+    const prodottiSenzaCosto = document.querySelector("#prodotti-senza-costo-magazzino");
 
     // Nella pagina Rettifiche serve il catalogo completo per il selettore,
     // ma non esiste una tabella Magazzino da aggiornare con una pagina separata.
@@ -612,6 +628,18 @@ async function caricaDatiMagazzino() {
         if (richiesta !== stato.richiesta) {
             return;
         }
+
+        if (valoreStimato && dati.riepilogo) {
+            valoreStimato.textContent = formattaEuro(dati.riepilogo.valore_stimato);
+        }
+
+        if (prodottiSenzaCosto && dati.riepilogo) {
+            const conteggio = Number(dati.riepilogo.prodotti_senza_costo);
+            prodottiSenzaCosto.textContent = conteggio === 0
+                ? "Tutti i prodotti con giacenza positiva hanno un costo noto."
+                : `${conteggio} ${conteggio === 1 ? "prodotto" : "prodotti"} con giacenza positiva senza costo noto: non ${conteggio === 1 ? "è incluso" : "sono inclusi"} nella stima.`;
+        }
+
         if (!aggiornaControlliLista("corpo-magazzino", dati.paginazione, stato)) {
             return;
         }
@@ -687,6 +715,14 @@ async function caricaDatiMagazzino() {
 
         if (contatore) {
             contatore.textContent = "—";
+        }
+
+        if (valoreStimato) {
+            valoreStimato.textContent = "—";
+        }
+
+        if (prodottiSenzaCosto) {
+            prodottiSenzaCosto.textContent = "Impossibile calcolare la stima.";
         }
 
         if (corpoTabella) {
@@ -1180,6 +1216,15 @@ function creaPulsanteCancellazione(testo, gestore) {
     return pulsante;
 }
 
+function creaPulsanteAzioneTabella(testo, gestore) {
+    const pulsante = document.createElement("button");
+    pulsante.type = "button";
+    pulsante.textContent = testo;
+    pulsante.className = "pulsante-tabella pulsante-secondario";
+    pulsante.addEventListener("click", gestore);
+    return pulsante;
+}
+
 function chiudiPopupAzioni() {
     if (!popupAzioniTabella) {
         return;
@@ -1361,9 +1406,9 @@ async function caricaGestioneProdotti() {
         corpo.replaceChildren();
 
         if (prodotti.length === 0) {
-            mostraErroreTabella(
+                mostraErroreTabella(
                 "#corpo-prodotti",
-                6,
+                7,
                 "Non ci sono prodotti registrati."
             );
             return;
@@ -1375,6 +1420,9 @@ async function caricaGestioneProdotti() {
                 prodotto.nome,
                 prodotto.marca || "—",
                 formattaEuro(prodotto.prezzo_vendita),
+                prodotto.costo_unitario_indicativo === null || prodotto.costo_unitario_indicativo === undefined
+                    ? "—"
+                    : formattaEuro(prodotto.costo_unitario_indicativo),
                 prodotto.soglia_riordino,
                 prodotto.giacenza
             ];
@@ -1393,9 +1441,13 @@ async function caricaGestioneProdotti() {
                     caricaGestioneProdotti
                 );
             });
+            const pulsanteModifica = creaPulsanteAzioneTabella("Modifica prodotto", () => {
+                chiudiPopupAzioni();
+                preparaModificaProdotto(prodotto);
+            });
             riga.appendChild(creaCellaAzioniPopup(
                 `prodotto ${prodotto.nome}`,
-                [pulsanteCancella]
+                [pulsanteModifica, pulsanteCancella]
             ));
 
             corpo.appendChild(riga);
@@ -1404,7 +1456,7 @@ async function caricaGestioneProdotti() {
         console.error("Errore nel caricamento dei prodotti:", errore);
         mostraErroreTabella(
             "#corpo-prodotti",
-            6,
+            7,
             "Impossibile caricare i prodotti."
         );
 
@@ -1414,26 +1466,91 @@ async function caricaGestioneProdotti() {
     }
 }
 
+function preparaModificaProdotto(prodotto) {
+    const form = document.querySelector("#form-prodotto");
+
+    if (!form) {
+        return;
+    }
+
+    prodottoInModificaId = prodotto.id;
+    form.elements.nome.value = prodotto.nome || "";
+    form.elements.marca.value = prodotto.marca || "";
+    form.elements.prezzoVendita.value = prodotto.prezzo_vendita ?? "";
+    form.elements.costoUnitarioIndicativo.value = prodotto.costo_unitario_indicativo ?? "";
+    form.elements.sogliaRiordino.value = prodotto.soglia_riordino ?? "0";
+
+    const pulsanteSalva = form.querySelector('button[type="submit"]');
+    const pulsanteAnnulla = document.querySelector("#annulla-modifica-prodotto");
+
+    if (pulsanteSalva) {
+        pulsanteSalva.textContent = "Salva modifiche";
+    }
+
+    if (pulsanteAnnulla) {
+        pulsanteAnnulla.hidden = false;
+    }
+
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+    form.elements.costoUnitarioIndicativo.focus();
+}
+
+function annullaModificaProdotto() {
+    const form = document.querySelector("#form-prodotto");
+
+    if (!form) {
+        return;
+    }
+
+    prodottoInModificaId = null;
+    form.reset();
+
+    const pulsanteSalva = form.querySelector('button[type="submit"]');
+    const pulsanteAnnulla = document.querySelector("#annulla-modifica-prodotto");
+
+    if (pulsanteSalva) {
+        pulsanteSalva.textContent = "Salva prodotto";
+    }
+
+    if (pulsanteAnnulla) {
+        pulsanteAnnulla.hidden = true;
+    }
+}
+
 async function gestisciFormProdotto(evento) {
     evento.preventDefault();
 
     const form = evento.currentTarget;
     const messaggio = document.querySelector("#messaggio-prodotto");
-    const nuovoProdotto = {
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
+    const prodotto = {
         nome: form.elements.nome.value.trim(),
         marca: form.elements.marca.value.trim() || null,
         prezzoVendita: Number(form.elements.prezzoVendita.value),
+        costoUnitarioIndicativo: form.elements.costoUnitarioIndicativo.value === ""
+            ? null
+            : Number(form.elements.costoUnitarioIndicativo.value),
         sogliaRiordino: Number(form.elements.sogliaRiordino.value)
     };
 
+    const prodottoId = prodottoInModificaId;
+    const modifica = prodottoId !== null;
+
     try {
-        const risposta = await fetchDati("/api/prodotti", {
-            method: "POST",
+        const risposta = await fetchDati(
+            modifica ? `/api/prodotti/${prodottoId}` : "/api/prodotti",
+            {
+            method: modifica ? "PATCH" : "POST",
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify(nuovoProdotto)
-        });
+            body: JSON.stringify(prodotto)
+            }
+        );
 
         const risultato = await risposta.json().catch(() => ({}));
 
@@ -1443,8 +1560,8 @@ async function gestisciFormProdotto(evento) {
             );
         }
 
-        form.reset();
-        messaggio.textContent = "Prodotto salvato.";
+        annullaModificaProdotto();
+        messaggio.textContent = modifica ? "Prodotto aggiornato." : "Prodotto salvato.";
         await caricaGestioneProdotti();
     } catch (errore) {
         console.error("Errore nel salvataggio del prodotto:", errore);
@@ -1468,14 +1585,6 @@ async function gestisciFormRettificaMagazzino(evento) {
 
     if (!Number.isInteger(quantita) || quantita === 0) {
         messaggio.textContent = "La quantità della rettifica deve essere un intero diverso da zero.";
-        return;
-    }
-
-    const prodotto = select.options[select.selectedIndex]?.textContent || "prodotto selezionato";
-
-    if (!window.confirm(
-        `Registrare la rettifica per ${prodotto}?\n\nVariazione: ${quantita > 0 ? "+" : ""}${quantita}\nMotivo: ${motivo}`
-    )) {
         return;
     }
 
@@ -2988,6 +3097,10 @@ async function inizializzaPaginaVisibile() {
     if (formProdotto && formProdotto.dataset.inizializzato !== "true") {
         formProdotto.dataset.inizializzato = "true";
         formProdotto.addEventListener("submit", gestisciFormProdotto);
+        document.querySelector("#annulla-modifica-prodotto")?.addEventListener(
+            "click",
+            annullaModificaProdotto
+        );
     }
 
     const formRettificaMagazzino = document.querySelector("#form-rettifica-magazzino");

@@ -82,12 +82,12 @@ function ruoloRichiesto(method, percorso) {
         return RUOLO_AMMINISTRATORE;
     }
 
-    if (method === "POST" && [
+    if ((method === "POST" && [
         "/api/prodotti",
         "/api/giacenze-iniziali",
         "/api/servizi-gestione",
         "/api/fornitori"
-    ].includes(percorso)) {
+    ].includes(percorso)) || (method === "PATCH" && /^\/api\/prodotti\/\d+$/.test(percorso))) {
         return RUOLO_AMMINISTRATORE;
     }
 
@@ -152,7 +152,7 @@ function leggiPaginazione(url) {
     };
 }
 
-function rispondiPagina(response, risultato, paginazione) {
+function rispondiPagina(response, risultato, paginazione, metadati = {}) {
     const totale = risultato.rows.length > 0
         ? Number(risultato.rows[0].totale_risultati)
         : 0;
@@ -165,8 +165,98 @@ function rispondiPagina(response, risultato, paginazione) {
             limite: paginazione.limite,
             totale,
             pagine: Math.ceil(totale / paginazione.limite)
-        }
+        },
+        ...metadati
     });
+}
+
+async function leggiRiepilogoValoreMagazzino(saloneId) {
+    const risultato = await pool.query(`
+        WITH movimenti_magazzino AS (
+            SELECT
+                salone_id,
+                prodotto_id,
+                quantita_variazione AS variazione
+            FROM public.rettifiche_magazzino
+            WHERE salone_id = $1
+
+            UNION ALL
+
+            SELECT
+                salone_id,
+                prodotto_id,
+                quantita AS variazione
+            FROM public.righe_acquisto
+            WHERE salone_id = $1
+
+            UNION ALL
+
+            SELECT
+                salone_id,
+                prodotto_id,
+                -quantita AS variazione
+            FROM public.righe_vendita
+            WHERE prodotto_id IS NOT NULL
+              AND salone_id = $1
+        ),
+        prodotti_con_giacenza AS (
+            SELECT
+                prodotti.id,
+                GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza,
+                prodotti.costo_unitario_indicativo
+            FROM public.prodotti AS prodotti
+            LEFT JOIN movimenti_magazzino
+                ON movimenti_magazzino.prodotto_id = prodotti.id
+               AND movimenti_magazzino.salone_id = prodotti.salone_id
+            WHERE prodotti.salone_id = $1
+            GROUP BY prodotti.id, prodotti.costo_unitario_indicativo
+        ),
+        ultimi_costi AS (
+            SELECT DISTINCT ON (righe_acquisto.prodotto_id)
+                righe_acquisto.prodotto_id,
+                righe_acquisto.costo_unitario
+            FROM public.righe_acquisto AS righe_acquisto
+            JOIN public.acquisti AS acquisti
+                ON acquisti.id = righe_acquisto.acquisto_id
+               AND acquisti.salone_id = righe_acquisto.salone_id
+            WHERE righe_acquisto.salone_id = $1
+            ORDER BY
+                righe_acquisto.prodotto_id,
+                acquisti.data_acquisto DESC,
+                acquisti.id DESC,
+                righe_acquisto.id DESC
+        ),
+        prodotti_valorizzati AS (
+            SELECT
+                prodotti_con_giacenza.giacenza,
+                COALESCE(
+                    ultimi_costi.costo_unitario,
+                    prodotti_con_giacenza.costo_unitario_indicativo
+                ) AS costo_riferimento
+            FROM prodotti_con_giacenza
+            LEFT JOIN ultimi_costi
+                ON ultimi_costi.prodotto_id = prodotti_con_giacenza.id
+        )
+        SELECT
+            COALESCE(
+                SUM(prodotti_valorizzati.giacenza * prodotti_valorizzati.costo_riferimento)
+                    FILTER (
+                        WHERE prodotti_valorizzati.giacenza > 0
+                          AND prodotti_valorizzati.costo_riferimento IS NOT NULL
+                    ),
+                0
+            ) AS valore_stimato,
+            COUNT(*) FILTER (
+                WHERE prodotti_valorizzati.giacenza > 0
+                  AND prodotti_valorizzati.costo_riferimento IS NULL
+            )::integer AS prodotti_senza_costo
+        FROM prodotti_valorizzati;
+    `, [saloneId]);
+
+    return risultato.rows[0] || {
+        valore_stimato: 0,
+        prodotti_senza_costo: 0
+    };
 }
 
 function rispondiErrorePaginazione(response, errore, messaggio) {
@@ -403,7 +493,7 @@ function prezzoValido(valore) {
     return Math.abs(valore * 100 - Math.round(valore * 100)) < 1e-8;
 }
 
-function validaPayloadProdotto(dati) {
+function validaPayloadProdotto(dati, { costoIndicativoObbligatorio = false } = {}) {
     if (!dati || typeof dati !== "object" || Array.isArray(dati)) {
         throw new ErroreRichiesta("Il contenuto inviato deve essere un oggetto JSON.");
     }
@@ -427,6 +517,20 @@ function validaPayloadProdotto(dati) {
         throw new ErroreRichiesta("Il prezzo di vendita deve essere un numero non negativo con massimo due decimali.");
     }
 
+    const costoUnitarioIndicativo = dati.costoUnitarioIndicativo === undefined ||
+        dati.costoUnitarioIndicativo === null ||
+        dati.costoUnitarioIndicativo === ""
+        ? null
+        : dati.costoUnitarioIndicativo;
+
+    if (costoIndicativoObbligatorio && costoUnitarioIndicativo === null) {
+        throw new ErroreRichiesta("Il costo unitario d'acquisto indicativo è obbligatorio.");
+    }
+
+    if (costoUnitarioIndicativo !== null && !prezzoValido(costoUnitarioIndicativo)) {
+        throw new ErroreRichiesta("Il costo unitario d'acquisto indicativo deve essere un numero non negativo con massimo due decimali.");
+    }
+
     if (
         !Number.isSafeInteger(dati.sogliaRiordino) ||
         dati.sogliaRiordino < 0 ||
@@ -439,7 +543,8 @@ function validaPayloadProdotto(dati) {
         nome,
         marca,
         prezzoVendita: dati.prezzoVendita,
-        sogliaRiordino: dati.sogliaRiordino
+        sogliaRiordino: dati.sogliaRiordino,
+        costoUnitarioIndicativo
     };
 }
 
@@ -478,7 +583,9 @@ function validaPayloadConteggioIniziale(dati) {
             throw new ErroreRichiesta("Ogni riga del conteggio deve essere un oggetto.");
         }
 
-        const prodotto = validaPayloadProdotto(riga);
+        const prodotto = validaPayloadProdotto(riga, {
+            costoIndicativoObbligatorio: true
+        });
         const chiave = chiaveProdotto(prodotto.nome, prodotto.marca);
 
         if (chiavi.has(chiave)) {
@@ -544,7 +651,7 @@ function validaPayloadRettificaMagazzino(dati) {
     };
 }
 
-async function verificaProdottoDuplicato(client, dati, saloneId) {
+async function verificaProdottoDuplicato(client, dati, saloneId, prodottoIdEscluso = null) {
     const risultato = await client.query(
         `
             SELECT id
@@ -552,9 +659,10 @@ async function verificaProdottoDuplicato(client, dati, saloneId) {
             WHERE salone_id = $1
               AND lower(btrim(nome)) = lower($2)
               AND lower(btrim(COALESCE(marca, ''))) = lower($3)
+              AND ($4::integer IS NULL OR id <> $4)
             LIMIT 1;
         `,
-        [saloneId, dati.nome, dati.marca || ""]
+        [saloneId, dati.nome, dati.marca || "", prodottoIdEscluso]
     );
 
     if (risultato.rowCount > 0) {
@@ -1200,7 +1308,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     LIMIT $3 OFFSET $4;
                 `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-                rispondiPagina(response, risultato, paginazione);
+                const riepilogo = await leggiRiepilogoValoreMagazzino(saloneId);
+                rispondiPagina(response, risultato, paginazione, { riepilogo });
             } catch (errore) {
                 console.error("Errore nel caricamento del magazzino:", errore);
 
@@ -1539,6 +1648,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     prodotti.marca,
                     prodotti.prezzo_vendita,
                     prodotti.soglia_riordino,
+                    prodotti.costo_unitario_indicativo,
                     GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza,
                     COUNT(*) OVER() AS totale_risultati
                 FROM public.prodotti AS prodotti
@@ -1556,7 +1666,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     prodotti.nome,
                     prodotti.marca,
                     prodotti.prezzo_vendita,
-                    prodotti.soglia_riordino
+                    prodotti.soglia_riordino,
+                    prodotti.costo_unitario_indicativo
                 ORDER BY prodotti.nome, prodotti.id
                 LIMIT $3 OFFSET $4;
             `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
@@ -1591,16 +1702,17 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 const prodotto = await client.query(
                     `
                         INSERT INTO public.prodotti
-                            (salone_id, nome, marca, prezzo_vendita, soglia_riordino)
-                        VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id, nome, marca, prezzo_vendita, soglia_riordino;
+                            (salone_id, nome, marca, prezzo_vendita, soglia_riordino, costo_unitario_indicativo)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        RETURNING id, nome, marca, prezzo_vendita, soglia_riordino, costo_unitario_indicativo;
                     `,
                     [
                         saloneId,
                         dati.nome,
                         dati.marca,
                         dati.prezzoVendita,
-                        dati.sogliaRiordino
+                        dati.sogliaRiordino,
+                        dati.costoUnitarioIndicativo
                     ]
                 );
 
@@ -1611,6 +1723,70 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         } catch (errore) {
             console.error("Errore nel salvataggio del prodotto:", errore);
             rispondiErroreOperazione(response, errore, "Impossibile salvare il prodotto.");
+        }
+    } else if (
+        request.method === "PATCH" &&
+        /^\/api\/prodotti\/\d+$/.test(percorso)
+    ) {
+        const prodottoId = Number(percorso.split("/").pop());
+
+        if (!idInteroValido(prodottoId)) {
+            rispondiJson(response, 400, { errore: "L'ID del prodotto non è valido." });
+            return;
+        }
+
+        let dati;
+
+        try {
+            dati = validaPayloadProdotto(await leggiJson(request));
+        } catch (errore) {
+            const messaggio = errore instanceof ErroreRichiesta
+                ? errore.message
+                : "Il contenuto inviato non è un JSON valido.";
+
+            rispondiJson(response, 400, { errore: messaggio });
+            return;
+        }
+
+        try {
+            const risultato = await eseguiTransazione(async (client) => {
+                await client.query("SELECT pg_advisory_xact_lock($1);", [LOCK_NAMESPACE_PRODOTTI]);
+                await verificaProdottoDuplicato(client, dati, saloneId, prodottoId);
+
+                const prodotto = await client.query(
+                    `
+                        UPDATE public.prodotti
+                        SET nome = $2,
+                            marca = $3,
+                            prezzo_vendita = $4,
+                            soglia_riordino = $5,
+                            costo_unitario_indicativo = $6
+                        WHERE salone_id = $1
+                          AND id = $7
+                        RETURNING id, nome, marca, prezzo_vendita, soglia_riordino, costo_unitario_indicativo;
+                    `,
+                    [
+                        saloneId,
+                        dati.nome,
+                        dati.marca,
+                        dati.prezzoVendita,
+                        dati.sogliaRiordino,
+                        dati.costoUnitarioIndicativo,
+                        prodottoId
+                    ]
+                );
+
+                if (prodotto.rowCount === 0) {
+                    throw new ErroreRichiesta("Il prodotto richiesto non esiste.", 404);
+                }
+
+                return prodotto.rows[0];
+            });
+
+            rispondiJson(response, 200, risultato);
+        } catch (errore) {
+            console.error("Errore nell'aggiornamento del prodotto:", errore);
+            rispondiErroreOperazione(response, errore, "Impossibile aggiornare il prodotto.");
         }
     } else if (
         request.method === "POST" &&
@@ -1642,16 +1818,17 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     const prodotto = await client.query(
                         `
                             INSERT INTO public.prodotti
-                                (salone_id, nome, marca, prezzo_vendita, soglia_riordino)
-                            VALUES ($1, $2, $3, $4, $5)
-                            RETURNING id, nome, marca, prezzo_vendita, soglia_riordino;
+                                (salone_id, nome, marca, prezzo_vendita, soglia_riordino, costo_unitario_indicativo)
+                            VALUES ($1, $2, $3, $4, $5, $6)
+                            RETURNING id, nome, marca, prezzo_vendita, soglia_riordino, costo_unitario_indicativo;
                         `,
                         [
                             saloneId,
                             riga.nome,
                             riga.marca,
                             riga.prezzoVendita,
-                            riga.sogliaRiordino
+                            riga.sogliaRiordino,
+                            riga.costoUnitarioIndicativo
                         ]
                     );
 
