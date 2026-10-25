@@ -34,6 +34,7 @@ body {
     min-width: 320px;
     margin: 0;
     padding: 24px 16px;
+    overflow-x: hidden;
     background:
         radial-gradient(circle at top left, rgb(219 233 248 / 70%), transparent 34rem),
         var(--sfondo);
@@ -417,7 +418,10 @@ p {
 .tabella-scroll,
 .tabella-gestione-scroll,
 .tabella-vendita-scroll {
+    min-width: 0;
+    max-width: 100%;
     overflow-x: auto;
+    overscroll-behavior-inline: contain;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -1166,6 +1170,14 @@ select:disabled {
     .dati-cliente {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .riga-conteggio {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .riga-conteggio .campo-gestione:first-of-type {
+        grid-column: span 2;
+    }
 }
 
 @media (max-width: 700px) {
@@ -1179,22 +1191,35 @@ select:disabled {
     }
 
     .barra-sessione {
-        align-items: stretch;
-        flex-direction: column;
+        align-items: center;
+        flex-direction: row;
+        gap: 8px;
+        padding: 8px 10px;
         border-radius: 15px;
     }
 
     .barra-sessione > span {
+        max-width: 100%;
         white-space: normal;
+        font-size: 0.82rem;
     }
 
     .controlli-sessione {
-        justify-content: stretch;
+        flex: 0 0 auto;
+        justify-content: flex-end;
+        gap: 6px;
     }
 
     .controlli-sessione select,
     .controlli-sessione .pulsante-secondario {
-        flex: 1 1 180px;
+        flex: 0 1 150px;
+        min-width: 0;
+    }
+
+    .controlli-sessione .pulsante-secondario {
+        flex: 0 0 auto;
+        min-height: 38px;
+        padding: 7px 12px;
     }
 
     .intestazione,
@@ -1319,6 +1344,10 @@ select:disabled {
 }
 
 /* Shell applicativo condiviso tra tutte le sezioni */
+.dashboard-menu-toggle {
+    display: none;
+}
+
 .dashboard-main {
     width: min(var(--layout-max-width), 100%);
     max-width: var(--layout-max-width);
@@ -1484,6 +1513,7 @@ select:disabled {
     min-height: calc(100vh - 148px);
     padding: clamp(24px, 2.5vw, 36px);
     overflow: hidden;
+    container-type: inline-size;
     border: 1px solid var(--bordo);
     border-radius: var(--raggio-grande);
     background: var(--bianco);
@@ -1617,6 +1647,7 @@ select:disabled {
 .dashboard-help-dialog {
     width: min(620px, calc(100% - 32px));
     max-height: min(720px, calc(100dvh - 32px));
+    margin: auto;
     padding: 0;
     border: 1px solid var(--bordo-forte);
     border-radius: var(--raggio-medio);
@@ -1634,6 +1665,7 @@ select:disabled {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
+    flex-wrap: wrap;
     padding: 20px 22px 14px;
     border-bottom: 1px solid var(--bordo);
 }
@@ -1743,6 +1775,7 @@ select:disabled {
 
     .dashboard-help-mobile-toggle {
         display: inline-flex;
+        width: 100%;
         min-height: 42px;
     }
 
@@ -1750,12 +1783,12 @@ select:disabled {
         position: static;
         display: none;
         min-height: 0;
-        max-width: 420px;
+        max-width: none;
         margin-top: 10px;
     }
 
     .dashboard-help.guida-aperta .dashboard-help-panel {
-        display: grid;
+        display: flex;
     }
 }
 
@@ -1793,9 +1826,34 @@ select:disabled {
 }
 
 @media (max-width: 900px) {
+    body {
+        padding: 16px 12px;
+    }
+
     .dashboard-main {
         grid-template-columns: 1fr;
+        width: 100%;
         gap: 14px;
+    }
+
+    .dashboard-menu-toggle {
+        grid-column: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 46px;
+        padding: 10px 14px;
+        border-color: var(--bordo-forte);
+        background: var(--bianco);
+        color: var(--verde-scuro);
+        text-align: left;
+    }
+
+    .dashboard-menu-toggle:hover,
+    .dashboard-menu-toggle:focus-visible {
+        border-color: var(--verde-scuro);
+        background: var(--verde-chiaro);
     }
 
     .dashboard-home .riepilogo {
@@ -1805,9 +1863,20 @@ select:disabled {
     .dashboard-sidebar {
         position: relative;
         top: auto;
+        display: none;
+        width: 100%;
         min-height: 0;
         gap: 12px;
         padding: 16px;
+    }
+
+    .dashboard-main.menu-aperto .dashboard-sidebar {
+        display: flex;
+    }
+
+    .dashboard-main.menu-aperto .dashboard-sidebar-label {
+        display: block;
+        margin: 0 8px -8px;
     }
 
     .dashboard-sidebar-label {
@@ -1851,13 +1920,73 @@ select:disabled {
         border-radius: 17px;
     }
 
+    .dashboard-home .scheda-statistica {
+        min-height: 0;
+        padding: 13px 14px;
+    }
+
+    .dashboard-home .scheda-statistica h2 {
+        margin-bottom: 10px;
+    }
+
+    .scheda-statistica-magazzino {
+        flex: 0 1 auto;
+        min-height: 0;
+        padding: 14px 16px;
+    }
+
+    .dashboard-home .intestazione {
+        flex-direction: row;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .dashboard-home .intestazione > div {
+        min-width: 0;
+    }
+
+    .dashboard-home .pulsante-occhio-panoramica {
+        width: 40px;
+        height: 38px;
+        flex-basis: 40px;
+        padding: 7px;
+    }
+
+    .dashboard-home .icona-occhio {
+        width: 19px;
+        height: 19px;
+    }
+
     .dashboard-navigation {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-help-panel {
+        padding: 16px 14px 14px;
+        gap: 16px;
+    }
+
+    .dashboard-help-dialog {
+        width: calc(100% - 20px);
+        max-height: calc(100vh - 20px);
+        max-height: calc(100dvh - 20px);
+    }
+
+    .dashboard-help-dialog-heading {
+        padding: 16px 16px 12px;
+    }
+
+    .dashboard-help-dialog-content {
+        padding: 16px 16px 18px;
     }
 }
 
 @media (max-width: 480px) {
     .dashboard-home .riepilogo {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-navigation {
         grid-template-columns: 1fr;
     }
 
@@ -1877,6 +2006,234 @@ select:disabled {
         width: 25px;
         height: 25px;
         flex-basis: 25px;
+    }
+
+    .dashboard-main-content {
+        padding-right: 12px;
+        padding-left: 12px;
+    }
+}
+
+/* Compatta il layout desktop dei portatili senza modificare la resa mobile. */
+@media (min-width: 1280px) and (max-width: 1600px) {
+    .barra-sessione {
+        margin-bottom: 12px;
+        padding: 7px 14px;
+        gap: 12px;
+        font-size: 0.84rem;
+    }
+
+    .controlli-sessione {
+        gap: 6px;
+    }
+
+    .controlli-sessione select {
+        min-height: 34px;
+        padding: 5px 28px 5px 9px;
+    }
+
+    .controlli-sessione .pulsante-secondario {
+        min-height: 34px;
+        padding: 6px 11px;
+    }
+
+    .dashboard-main {
+        grid-template-columns: minmax(232px, 248px) minmax(0, 1fr) minmax(220px, 236px);
+        gap: 14px;
+        margin-bottom: 24px;
+    }
+
+    .dashboard-sidebar {
+        gap: 8px;
+        padding: 12px 10px 10px;
+    }
+
+    .dashboard-brand {
+        gap: 7px;
+        padding: 0 3px 1px;
+    }
+
+    .dashboard-brand-mark {
+        width: 34px;
+        height: 34px;
+        flex-basis: 34px;
+        border-radius: 9px;
+    }
+
+    .dashboard-brand strong {
+        font-size: 0.84rem;
+    }
+
+    .dashboard-brand small {
+        font-size: 0.64rem;
+    }
+
+    .dashboard-sidebar-label {
+        margin-right: 5px;
+        margin-left: 5px;
+        font-size: 0.62rem;
+    }
+
+    .dashboard-navigation {
+        gap: 2px;
+    }
+
+    .dashboard-navigation .pulsante-sezione {
+        min-height: 35px;
+        gap: 6px;
+        padding: 5px 7px;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        white-space: nowrap;
+    }
+
+    .nav-icon {
+        width: 23px;
+        height: 23px;
+        flex-basis: 23px;
+        border-radius: 6px;
+        font-size: 0.84rem;
+    }
+
+    .dashboard-sidebar-card {
+        padding: 8px 10px;
+        border-radius: 10px;
+    }
+
+    .dashboard-sidebar-card-label,
+    .dashboard-sidebar-card-note {
+        font-size: 0.64rem;
+    }
+
+    .dashboard-sidebar-card strong {
+        font-size: 0.9rem;
+    }
+
+    .dashboard-main-content {
+        min-height: calc(100vh - 132px);
+        padding: 24px;
+    }
+
+    .dashboard-main-content .intestazione {
+        gap: 18px;
+        margin-bottom: 18px;
+    }
+
+    .dashboard-main-content .intestazione h1 {
+        font-size: clamp(2rem, 2.7vw, 2.35rem);
+    }
+
+    .dashboard-help-panel {
+        gap: 14px;
+        padding: 17px 12px 13px;
+    }
+
+    .dashboard-help-heading {
+        padding: 0 4px;
+    }
+
+    .dashboard-help-label {
+        font-size: 0.66rem;
+    }
+
+    .dashboard-help-title {
+        margin-bottom: 6px;
+        font-size: 1rem;
+    }
+
+    .dashboard-help-context {
+        font-size: 0.78rem;
+    }
+
+    .dashboard-help-actions {
+        gap: 7px;
+    }
+
+    .dashboard-help-actions .pulsante-secondario {
+        min-height: 38px;
+        padding: 7px 9px;
+        font-size: 0.76rem;
+    }
+
+    .dashboard-help-footer {
+        gap: 6px;
+        padding: 13px 4px 0;
+    }
+
+    .dashboard-help-support .pulsante-secondario {
+        min-height: 37px;
+        padding: 7px 9px;
+        font-size: 0.78rem;
+    }
+
+    .dashboard-help-author,
+    .dashboard-help-version {
+        font-size: 0.68rem;
+    }
+
+    .dashboard-home .intestazione {
+        margin-bottom: 16px;
+    }
+
+    .dashboard-home .riepilogo {
+        gap: 9px;
+        margin-bottom: 22px;
+    }
+
+    .dashboard-home .scheda-statistica {
+        min-height: 126px;
+        padding: 14px 13px;
+        border-radius: 11px;
+    }
+
+    .dashboard-home .scheda-statistica h2 {
+        margin-bottom: 15px;
+        font-size: 0.88rem;
+    }
+
+    .dashboard-home .scheda-statistica p {
+        font-size: clamp(1.25rem, 1.65vw, 1.9rem);
+    }
+
+    .dashboard-home .movimenti h2 {
+        margin-bottom: 12px;
+        font-size: 1.25rem;
+    }
+
+    .dashboard-home .pulsante-occhio-panoramica {
+        width: 42px;
+        height: 39px;
+        flex-basis: 42px;
+        padding: 7px;
+    }
+
+    .dashboard-home .icona-occhio {
+        width: 20px;
+        height: 20px;
+    }
+}
+
+@container (max-width: 920px) {
+    .dashboard-main-content .riga-conteggio {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-main-content .riga-conteggio .campo-gestione:first-of-type {
+        grid-column: span 2;
+    }
+}
+
+@container (max-width: 560px) {
+    .dashboard-main-content .campi-gestione {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-main-content .riga-conteggio {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-main-content .riga-conteggio .campo-gestione:first-of-type {
+        grid-column: auto;
     }
 }
 
@@ -2210,6 +2567,7 @@ td.cella-testo-lungo > .contenuto-cella-tabella > a {
 .popup-cella-tabella-pannello {
     width: min(620px, 100%);
     max-height: min(680px, calc(100vh - 40px));
+    max-height: min(680px, calc(100dvh - 40px));
     overflow: auto;
     border: 2px solid var(--verde-scuro);
     border-radius: 10px;
@@ -2228,6 +2586,7 @@ td.cella-testo-lungo > .contenuto-cella-tabella > a {
 }
 
 .popup-cella-tabella-intestazione h2 {
+    min-width: 0;
     margin: 0;
     color: var(--inchiostro);
     font-size: 1rem;
@@ -2267,6 +2626,10 @@ body.popup-azioni-aperta {
     overflow: hidden;
 }
 
+body.popup-conferma-aperta {
+    overflow: hidden;
+}
+
 .popup-azioni-tabella {
     position: fixed;
     z-index: 1110;
@@ -2280,6 +2643,7 @@ body.popup-azioni-aperta {
 .popup-azioni-tabella-pannello {
     width: min(520px, 100%);
     max-height: min(680px, calc(100vh - 40px));
+    max-height: min(680px, calc(100dvh - 40px));
     overflow: auto;
     border: 2px solid var(--verde-scuro);
     border-radius: 10px;
@@ -2333,6 +2697,79 @@ body.popup-azioni-aperta {
     width: 100%;
 }
 
+.popup-conferma-tabella {
+    position: fixed;
+    z-index: 1120;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgb(23 43 67 / 48%);
+}
+
+.popup-conferma-tabella-pannello {
+    width: min(520px, 100%);
+    max-height: min(680px, calc(100vh - 40px));
+    max-height: min(680px, calc(100dvh - 40px));
+    overflow: auto;
+    border: 2px solid var(--rosso);
+    border-radius: 10px;
+    background: var(--bianco);
+    box-shadow: 5px 5px 0 rgb(23 79 134 / 28%);
+}
+
+.popup-conferma-tabella-intestazione {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 15px 18px;
+    border-bottom: 1px solid var(--bordo);
+    background: var(--rosso-chiaro);
+}
+
+.popup-conferma-tabella-intestazione h2 {
+    min-width: 0;
+    margin: 0;
+    color: var(--inchiostro);
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.popup-conferma-tabella-annulla {
+    min-height: 36px;
+    flex: 0 0 auto;
+    padding: 7px 12px;
+    border: 2px solid var(--rosso);
+    border-radius: 4px;
+    background: var(--bianco);
+    color: var(--rosso);
+    font-family: "Courier New", monospace;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.popup-conferma-tabella-annulla:hover,
+.popup-conferma-tabella-annulla:focus-visible {
+    background: var(--rosso-chiaro);
+}
+
+.popup-conferma-tabella-contenuto {
+    margin: 0;
+    padding: 22px 18px 10px;
+    color: var(--inchiostro);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.popup-conferma-tabella-azioni {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 10px 18px 22px;
+}
+
 .popup-modifica-tabella .popup-azioni-tabella-pannello {
     width: min(700px, 100%);
 }
@@ -2375,17 +2812,34 @@ body.popup-azioni-aperta {
 
     .popup-cella-tabella-pannello {
         max-height: calc(100vh - 20px);
+        max-height: calc(100dvh - 20px);
         border-radius: 9px 9px 4px 4px;
     }
 
     .popup-azioni-tabella {
-        align-items: end;
+        place-items: center;
         padding: 10px;
     }
 
     .popup-azioni-tabella-pannello {
         max-height: calc(100vh - 20px);
+        max-height: calc(100dvh - 20px);
         border-radius: 9px 9px 4px 4px;
+    }
+
+    .popup-conferma-tabella {
+        place-items: center;
+        padding: 10px;
+    }
+
+    .popup-conferma-tabella-pannello {
+        max-height: calc(100vh - 20px);
+        max-height: calc(100dvh - 20px);
+        border-radius: 9px;
+    }
+
+    .popup-conferma-tabella-azioni > button {
+        width: 100%;
     }
 
     .popup-modifica-form {

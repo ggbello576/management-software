@@ -30,6 +30,8 @@ let popupCellaTabella = null;
 let elementoPrimaDelPopup = null;
 let popupAzioniTabella = null;
 let elementoPrimaDelPopupAzioni = null;
+let popupConfermaTabella = null;
+let elementoPrimaDelPopupConferma = null;
 let popupModificaTabella = null;
 let elementoPrimaDelPopupModifica = null;
 const LIMITE_LISTE = 10;
@@ -1655,6 +1657,107 @@ function apriPopupAzioni(titoloContesto, contenitore, pulsanteApertura) {
     chiudi.focus();
 }
 
+function chiudiPopupConferma(esito = false) {
+    if (!popupConfermaTabella) {
+        return;
+    }
+
+    const { popup, risolvi } = popupConfermaTabella;
+    popup.remove();
+    popupConfermaTabella = null;
+    document.body.classList.remove("popup-conferma-aperta");
+
+    if (
+        elementoPrimaDelPopupConferma instanceof HTMLElement &&
+        document.contains(elementoPrimaDelPopupConferma)
+    ) {
+        elementoPrimaDelPopupConferma.focus();
+    }
+
+    elementoPrimaDelPopupConferma = null;
+    risolvi(esito);
+}
+
+function mostraConferma(testoConferma) {
+    chiudiPopupConferma(false);
+
+    return new Promise((risolvi) => {
+        const popup = document.createElement("div");
+        const pannello = document.createElement("section");
+        const intestazione = document.createElement("div");
+        const titolo = document.createElement("h2");
+        const annulla = document.createElement("button");
+        const contenuto = document.createElement("p");
+        const azioni = document.createElement("div");
+        const conferma = document.createElement("button");
+
+        popup.className = "popup-conferma-tabella";
+        popup.setAttribute("role", "dialog");
+        popup.setAttribute("aria-modal", "true");
+        popup.setAttribute("aria-labelledby", "titolo-popup-conferma-tabella");
+        popup.setAttribute("aria-describedby", "testo-popup-conferma-tabella");
+
+        pannello.className = "popup-conferma-tabella-pannello";
+        intestazione.className = "popup-conferma-tabella-intestazione";
+        titolo.id = "titolo-popup-conferma-tabella";
+        titolo.textContent = "Conferma cancellazione";
+        annulla.type = "button";
+        annulla.className = "popup-conferma-tabella-annulla";
+        annulla.textContent = "Annulla";
+        annulla.setAttribute("aria-label", "Annulla la cancellazione");
+        contenuto.id = "testo-popup-conferma-tabella";
+        contenuto.className = "popup-conferma-tabella-contenuto";
+        contenuto.textContent = testoConferma;
+        azioni.className = "popup-conferma-tabella-azioni";
+        conferma.type = "button";
+        conferma.className = "pulsante-tabella pulsante-cancella";
+        conferma.textContent = "Conferma cancellazione";
+
+        const elementiFocalizzabili = [annulla, conferma];
+
+        annulla.addEventListener("click", () => chiudiPopupConferma(false));
+        conferma.addEventListener("click", () => chiudiPopupConferma(true));
+        popup.addEventListener("click", (evento) => {
+            if (evento.target === popup) {
+                chiudiPopupConferma(false);
+            }
+        });
+        popup.addEventListener("keydown", (evento) => {
+            if (evento.key === "Escape") {
+                evento.preventDefault();
+                chiudiPopupConferma(false);
+                return;
+            }
+
+            if (evento.key !== "Tab") {
+                return;
+            }
+
+            const primo = elementiFocalizzabili[0];
+            const ultimo = elementiFocalizzabili[elementiFocalizzabili.length - 1];
+
+            if (evento.shiftKey && document.activeElement === primo) {
+                evento.preventDefault();
+                ultimo.focus();
+            } else if (!evento.shiftKey && document.activeElement === ultimo) {
+                evento.preventDefault();
+                primo.focus();
+            }
+        });
+
+        intestazione.append(titolo, annulla);
+        azioni.appendChild(conferma);
+        pannello.append(intestazione, contenuto, azioni);
+        popup.appendChild(pannello);
+        document.body.appendChild(popup);
+
+        popupConfermaTabella = { popup, risolvi };
+        elementoPrimaDelPopupConferma = document.activeElement;
+        document.body.classList.add("popup-conferma-aperta");
+        annulla.focus();
+    });
+}
+
 function creaCellaAzioniPopup(titoloContesto, pulsanti, etichetta = "Modifica") {
     const cella = document.createElement("td");
     const modifica = document.createElement("button");
@@ -2059,7 +2162,7 @@ function apriPopupModificaFornitore(fornitore) {
 }
 
 async function cancellaRisorsa(url, testoConferma, messaggio, aggiorna) {
-    if (!window.confirm(testoConferma)) {
+    if (!(await mostraConferma(testoConferma))) {
         return false;
     }
 
@@ -3441,6 +3544,7 @@ function percorsoAttivo(percorso) {
 
 function creaSidebarApplicazione() {
     const sidebar = document.createElement("aside");
+    sidebar.id = "navigazione-gestionale";
     sidebar.className = "dashboard-sidebar";
     sidebar.setAttribute("aria-label", "Navigazione gestionale");
 
@@ -3780,6 +3884,21 @@ function aggiornaSezioneAttiva(percorso) {
     }
 }
 
+function aggiornaMenuMobile(aperto) {
+    if (!shellApplicazione) {
+        return;
+    }
+
+    shellApplicazione.main.classList.toggle("menu-aperto", aperto);
+    const pulsante = shellApplicazione.main.querySelector(".dashboard-menu-toggle");
+
+    if (pulsante) {
+        pulsante.textContent = aperto ? "Chiudi menu" : "Menu";
+        pulsante.setAttribute("aria-expanded", String(aperto));
+        pulsante.setAttribute("aria-label", aperto ? "Chiudi il menu del gestionale" : "Apri il menu del gestionale");
+    }
+}
+
 function estraiContenutoPagina(html, percorso) {
     const documento = new DOMParser().parseFromString(html, "text/html");
     const main = documento.querySelector("main");
@@ -3866,6 +3985,13 @@ function gestisciNavigazioneApplicazione(evento) {
         return;
     }
 
+    const pulsanteMenu = evento.target.closest(".dashboard-menu-toggle");
+
+    if (pulsanteMenu) {
+        aggiornaMenuMobile(!shellApplicazione.main.classList.contains("menu-aperto"));
+        return;
+    }
+
     const link = evento.target.closest("a[href]");
 
     if (!link || link.target === "_blank" || evento.metaKey || evento.ctrlKey || evento.shiftKey || evento.altKey) {
@@ -3879,6 +4005,7 @@ function gestisciNavigazioneApplicazione(evento) {
     }
 
     evento.preventDefault();
+    aggiornaMenuMobile(false);
     caricaSezioneApplicazione(url.pathname);
 }
 
@@ -3908,8 +4035,22 @@ function creaShellApplicazione() {
     main.classList.add("dashboard-main");
     main.classList.add(paginaHome ? "dashboard-home" : "dashboard-page-shell");
     const guida = creaGuidaApplicazione(window.location.pathname);
-    main.replaceChildren(creaSidebarApplicazione(), contenuto, guida.elemento);
+    const menu = document.createElement("button");
+    menu.type = "button";
+    menu.id = "toggle-menu-gestionale";
+    menu.className = "dashboard-menu-toggle pulsante-secondario";
+    menu.textContent = "Menu";
+    menu.setAttribute("aria-expanded", "false");
+    menu.setAttribute("aria-controls", "navigazione-gestionale");
+    menu.setAttribute("aria-label", "Apri il menu del gestionale");
+
+    main.replaceChildren(menu, creaSidebarApplicazione(), contenuto, guida.elemento);
     main.addEventListener("click", gestisciNavigazioneApplicazione);
+    document.addEventListener("keydown", (evento) => {
+        if (evento.key === "Escape") {
+            aggiornaMenuMobile(false);
+        }
+    });
 
     shellApplicazione = { main, content: contenuto, guida };
 }
