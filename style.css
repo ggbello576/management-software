@@ -1939,6 +1939,7 @@ select:disabled {
         flex-direction: row;
         align-items: center;
         gap: 12px;
+        margin-bottom: 12px;
     }
 
     .dashboard-home .intestazione > div {
