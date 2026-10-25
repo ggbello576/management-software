@@ -8,59 +8,63 @@
 </head>
 
 <body>
-    <main class="contenitore">
-        <header class="intestazione">
+    <main class="pagina-vendite pagina-acquisti">
+        <header class="intestazione intestazione-vendite">
             <div>
                 <p class="soprattitolo">GESTIONALE DEL SALONE</p>
-                <h1>Acquisti da fornitori</h1>
-                <p class="descrizione-gestione">
-                    Registra gli arrivi di prodotti e aggiorna la giacenza attraverso i movimenti di magazzino.
+                <h1>Registra un acquisto</h1>
+                <p class="descrizione-vendite">
+                    Seleziona un fornitore, aggiungi i prodotti e controlla il totale dell'acquisto.
                 </p>
-                <a href="/">Torna alla panoramica</a>
             </div>
+
+            <a class="link-home" href="/">← Torna alla panoramica</a>
         </header>
 
         <nav class="navigazione" aria-label="Navigazione principale">
             <a href="/" class="pulsante-sezione">Panoramica</a>
             <a href="/magazzino" class="pulsante-sezione">Magazzino</a>
-            <a href="/conteggio-iniziale" class="pulsante-sezione">Conteggio iniziale</a>
             <a href="/acquisti" class="pulsante-sezione attivo">Acquisti</a>
             <a href="/vendite" class="pulsante-sezione">Vendite</a>
             <a href="/clienti" class="pulsante-sezione">Clienti</a>
             <a href="/prodotti" class="pulsante-sezione">Prodotti</a>
             <a href="/servizi" class="pulsante-sezione">Servizi</a>
             <a href="/fornitori" class="pulsante-sezione">Fornitori</a>
+            <a href="/conteggio-iniziale" class="pulsante-sezione">Conteggio iniziale</a>
         </nav>
 
-        <section class="scheda-gestione">
-            <h2>Registra un acquisto</h2>
-            <p class="testo-secondario">
-                Il costo unitario viene salvato nelle righe dell'acquisto e contribuisce al totale dello storico.
-            </p>
-
-            <form id="form-acquisto" class="form-gestione">
-                <div class="campi-gestione">
-                    <div class="campo-gestione">
-                        <label for="fornitore-acquisto">Fornitore</label>
-                        <select id="fornitore-acquisto" name="fornitoreId" required>
-                            <option value="">Caricamento fornitori…</option>
-                        </select>
+        <form id="form-acquisto" class="form-vendita form-acquisto-coerente">
+            <section class="scheda-vendita">
+                <div class="intestazione-sezione-form">
+                    <div class="titolo-sezione-vendita">
+                        <span class="numero-sezione">1</span>
+                        <div>
+                            <h2>Fornitore</h2>
+                            <p>Puoi lasciare il campo vuoto per un acquisto senza fornitore registrato.</p>
+                        </div>
                     </div>
 
-                    <div class="campo-gestione">
-                        <label for="data-acquisto">Data</label>
-                        <input type="date" id="data-acquisto" name="dataAcquisto">
-                    </div>
-
-                    <div class="campo-gestione campo-gestione-largo campo-gestione-note">
-                        <label for="note-acquisto">Note</label>
-                        <textarea id="note-acquisto" name="note" rows="2"></textarea>
-                    </div>
+                    <a class="collegamento-sezione" href="/fornitori" target="_blank" rel="noopener">
+                        Aggiungi nuovo fornitore
+                    </a>
                 </div>
 
-                <div class="collegamento-gestione">
-                    <a href="/fornitori" target="_blank" rel="noopener">Aggiungi o gestisci un fornitore</a>
-                    <button type="button" id="aggiorna-fornitori" class="pulsante-secondario">Aggiorna fornitori</button>
+                <div class="campo-gestione">
+                    <label for="fornitore-acquisto">Fornitore</label>
+                    <select id="fornitore-acquisto" name="fornitoreId">
+                        <option value="">Nessun fornitore selezionato</option>
+                    </select>
+                </div>
+
+            </section>
+
+            <section class="scheda-vendita">
+                <div class="titolo-sezione-vendita">
+                    <span class="numero-sezione">2</span>
+                    <div>
+                        <h2>Data e prodotti</h2>
+                        <p>Scegli la data e aggiungi una o più righe di prodotti allo stesso acquisto.</p>
+                    </div>
                 </div>
 
                 <fieldset class="selettore-acquisto">
@@ -84,14 +88,51 @@
                             <input type="number" id="costo-acquisto" min="0" step="0.01">
                         </div>
                     </div>
-
-                    <button type="button" id="aggiungi-riga-acquisto" class="pulsante-secondario">
-                        Aggiungi alla lista
-                    </button>
                 </fieldset>
 
-                <div class="tabella-gestione-scroll">
-                    <table class="tabella-gestione">
+                <div class="impostazioni-data-vendita impostazioni-data-acquisto">
+                    <div class="testo-data-vendita">
+                        <label for="data-acquisto">Data</label>
+                        <p>Selezionare la data dell'acquisto o degli acquisti complessivi.</p>
+                    </div>
+
+                    <div class="campo-gestione campo-vendita-data">
+                        <input type="date" id="data-acquisto" name="dataAcquisto" required>
+                    </div>
+                </div>
+
+                <div class="note-vendita-sezione note-acquisto-sezione">
+                    <div class="titolo-note-vendita">
+                        <h3 id="titolo-note-acquisto">Note sull'acquisto</h3>
+                    </div>
+
+                    <div class="campo-gestione campo-gestione-note">
+                        <textarea
+                            id="note-acquisto"
+                            name="note"
+                            rows="3"
+                            placeholder="Facoltative"
+                            aria-labelledby="titolo-note-acquisto"
+                        ></textarea>
+                    </div>
+                </div>
+
+                <button type="button" id="aggiungi-riga-acquisto" class="pulsante-secondario pulsante-aggiungi-vendita">
+                    Aggiungi alla lista
+                </button>
+            </section>
+
+            <section class="scheda-vendita scheda-vendita-riepilogo">
+                <div class="titolo-sezione-vendita">
+                    <span class="numero-sezione">3</span>
+                    <div>
+                        <h2>Riepilogo</h2>
+                        <p>Controlla le righe e il totale prima di salvare l'acquisto.</p>
+                    </div>
+                </div>
+
+                <div class="tabella-vendita-scroll">
+                    <table class="tabella-vendita">
                         <thead>
                             <tr>
                                 <th scope="col">Prodotto</th>
@@ -115,11 +156,12 @@
                     <strong id="totale-acquisto">0,00 €</strong>
                 </div>
 
-                <button type="submit" class="pulsante-salva">Salva acquisto</button>
-            </form>
-
-            <p id="messaggio-acquisto" class="messaggio-gestione" aria-live="polite"></p>
-        </section>
+                <div class="vendita-finalizzazione">
+                    <p id="messaggio-acquisto" aria-live="polite"></p>
+                    <button type="submit" class="pulsante-salva">Salva acquisto</button>
+                </div>
+            </section>
+        </form>
 
         <section class="scheda-gestione">
             <h2>Acquisti registrati</h2>

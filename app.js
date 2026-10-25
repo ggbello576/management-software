@@ -74,7 +74,9 @@ function configuraListaPaginata(idCorpo, segnaposto, ricarica) {
 
     if (!controlli) {
         const corpo = document.getElementById(idCorpo);
-        const contenitoreTabella = corpo?.closest(".tabella-scroll, .tabella-gestione-scroll");
+        const contenitoreTabella = corpo?.closest(
+            ".tabella-scroll, .tabella-gestione-scroll, .tabella-vendita-scroll"
+        );
 
         if (!corpo || !contenitoreTabella) {
             return stato;
@@ -166,6 +168,14 @@ function dataLocaleISO() {
 
 function inizializzaDataVendita() {
     const campo = document.querySelector("#data-vendita");
+
+    if (campo && campo.value === "") {
+        campo.value = dataLocaleISO();
+    }
+}
+
+function inizializzaDataAcquisto() {
+    const campo = document.querySelector("#data-acquisto");
 
     if (campo && campo.value === "") {
         campo.value = dataLocaleISO();
@@ -1931,7 +1941,7 @@ async function caricaElencoAcquisti() {
         for (const acquisto of acquisti) {
             const riga = document.createElement("tr");
             const valori = [
-                new Date(acquisto.data_acquisto).toLocaleDateString("it-IT"),
+                formattaDataSenzaConversione(acquisto.data_acquisto),
                 acquisto.fornitore,
                 acquisto.righe.map((rigaAcquisto) => {
                     return `${rigaAcquisto.prodotto} × ${rigaAcquisto.quantita} (${formattaEuro(rigaAcquisto.costoUnitario)})`;
@@ -2009,7 +2019,7 @@ async function caricaElencoAcquisti() {
 
                 await cancellaRisorsa(
                     `/api/acquisti/${acquisto.id}`,
-                    `Cancellazione definitiva dell'acquisto del ${new Date(acquisto.data_acquisto).toLocaleDateString("it-IT")} da ${acquisto.fornitore}.\n\nEffetto sulla giacenza:\n- ${effetti.join("\n- ")}\n\nConfermi?`,
+                    `Cancellazione definitiva dell'acquisto del ${formattaDataSenzaConversione(acquisto.data_acquisto)} da ${acquisto.fornitore}.\n\nEffetto sulla giacenza:\n- ${effetti.join("\n- ")}\n\nConfermi?`,
                     messaggio,
                     async () => {
                         await caricaElencoAcquisti();
@@ -2019,7 +2029,7 @@ async function caricaElencoAcquisti() {
             });
             azioni.push(pulsanteAcquisto);
             riga.appendChild(creaCellaAzioniPopup(
-                `acquisto del ${new Date(acquisto.data_acquisto).toLocaleDateString("it-IT")} da ${acquisto.fornitore}`,
+                `acquisto del ${formattaDataSenzaConversione(acquisto.data_acquisto)} da ${acquisto.fornitore}`,
                 azioni
             ));
 
@@ -2037,6 +2047,7 @@ async function caricaElencoAcquisti() {
 
 async function caricaDatiAcquisto() {
     const messaggio = document.querySelector("#messaggio-acquisto");
+    inizializzaDataAcquisto();
 
     try {
         await Promise.all([
@@ -2066,7 +2077,9 @@ async function gestisciFormAcquisto(evento) {
     }
 
     const acquisto = {
-        fornitoreId: Number(form.elements.fornitoreId.value),
+        fornitoreId: form.elements.fornitoreId.value === ""
+            ? null
+            : Number(form.elements.fornitoreId.value),
         dataAcquisto: form.elements.dataAcquisto.value || null,
         note: form.elements.note.value.trim() || null,
         righe: righeAcquisto.map((riga) => ({
@@ -2094,10 +2107,20 @@ async function gestisciFormAcquisto(evento) {
         }
 
         form.reset();
+        inizializzaDataAcquisto();
         righeAcquisto = [];
         mostraRigheAcquisto();
         messaggio.textContent = "Acquisto salvato.";
-        await caricaElencoAcquisti();
+
+        const statoListaAcquisti = statiListe.get("corpo-acquisti");
+        if (statoListaAcquisti) {
+            statoListaAcquisti.pagina = 1;
+        }
+
+        await Promise.all([
+            caricaProdottiPerAcquisto(),
+            caricaElencoAcquisti()
+        ]);
     } catch (errore) {
         console.error("Errore nel salvataggio dell'acquisto:", errore);
         messaggio.textContent = errore.message === "Failed to fetch"
@@ -2142,11 +2165,12 @@ async function caricaElencoVendite() {
         }
 
         for (const vendita of dati.elementi) {
+            const righeVendita = Array.isArray(vendita.righe) ? vendita.righe : [];
             const riga = document.createElement("tr");
             const valori = [
                 formattaDataSenzaConversione(vendita.data_vendita),
                 vendita.cliente || "Vendita senza cliente",
-                vendita.righe.map((rigaVendita) => {
+                righeVendita.map((rigaVendita) => {
                     return `${rigaVendita.elemento} × ${rigaVendita.quantita} (${formattaEuro(rigaVendita.prezzoUnitario)})`;
                 }).join(", ") || "—",
                 formattaEuro(vendita.totale),
@@ -2162,21 +2186,23 @@ async function caricaElencoVendite() {
             const azioni = [];
             const messaggio = document.querySelector("#messaggio-vendita");
 
-            for (const rigaVendita of vendita.righe) {
-                azioni.push(creaPulsanteCancellazione(`Riga ${rigaVendita.elemento}`, async () => {
-                    await cancellaRisorsa(
-                        `/api/righe-vendita/${rigaVendita.id}`,
-                        `Vuoi cancellare definitivamente la riga "${rigaVendita.elemento}" (${rigaVendita.quantita} unità)? La giacenza verrà ricalcolata se è un prodotto.`,
-                        messaggio,
-                        async (risultatoCancellazione) => {
-                            await caricaElencoVendite();
-                            await caricaDatiVendita();
-                            if (risultatoCancellazione.testataCancellata && messaggio) {
-                                messaggio.textContent = "Era l'ultima riga: vendita e riga cancellate.";
+            if (righeVendita.length > 1) {
+                for (const rigaVendita of righeVendita) {
+                    azioni.push(creaPulsanteCancellazione(`Cancella riga ${rigaVendita.elemento}`, async () => {
+                        await cancellaRisorsa(
+                            `/api/righe-vendita/${rigaVendita.id}`,
+                            `Vuoi cancellare definitivamente la riga "${rigaVendita.elemento}" (${rigaVendita.quantita} unità)? La giacenza verrà ricalcolata se è un prodotto.`,
+                            messaggio,
+                            async (risultatoCancellazione) => {
+                                await caricaElencoVendite();
+                                await caricaDatiVendita();
+                                if (risultatoCancellazione.testataCancellata && messaggio) {
+                                    messaggio.textContent = "Era l'ultima riga: vendita e riga cancellate.";
+                                }
                             }
-                        }
-                    );
-                }));
+                        );
+                    }));
+                }
             }
 
             azioni.push(creaPulsanteCancellazione("Cancella vendita", async () => {
@@ -2509,7 +2535,10 @@ async function gestisciFormVendita(evento) {
         mostraRigheVendita();
         messaggio.textContent = "Vendita salvata.";
 
-        await caricaDatiVendita();
+        await Promise.all([
+            caricaDatiVendita(),
+            caricaElencoVendite()
+        ]);
     } catch (errore) {
         console.error("Errore nel salvataggio della vendita:", errore);
 
@@ -2632,13 +2661,13 @@ function creaSidebarApplicazione() {
     const voci = [
         ["/", "⌂", "Panoramica"],
         ["/magazzino", "▦", "Magazzino"],
-        ["/conteggio-iniziale", "#", "Conteggio iniziale"],
         ["/acquisti", "↙", "Acquisti"],
         ["/vendite", "↗", "Vendite"],
         ["/clienti", "♙", "Clienti"],
         ["/prodotti", "□", "Prodotti"],
         ["/servizi", "✦", "Servizi"],
-        ["/fornitori", "⌁", "Fornitori"]
+        ["/fornitori", "⌁", "Fornitori"],
+        ["/conteggio-iniziale", "#", "Conteggio iniziale"]
     ];
 
     for (const [percorso, simbolo, testo] of voci) {
@@ -2929,21 +2958,10 @@ async function inizializzaPaginaVisibile() {
     if (document.querySelector("#form-acquisto")) {
         const formAcquisto = document.querySelector("#form-acquisto");
         const pulsanteAggiungiRiga = document.querySelector("#aggiungi-riga-acquisto");
-        const pulsanteAggiornaFornitori = document.querySelector("#aggiorna-fornitori");
 
         if (formAcquisto.dataset.inizializzato !== "true") {
             formAcquisto.dataset.inizializzato = "true";
             pulsanteAggiungiRiga?.addEventListener("click", aggiungiRigaAcquisto);
-            pulsanteAggiornaFornitori?.addEventListener("click", async () => {
-                const messaggio = document.querySelector("#messaggio-acquisto");
-
-                try {
-                    await caricaFornitoriPerAcquisto();
-                    messaggio.textContent = "Elenco fornitori aggiornato.";
-                } catch (errore) {
-                    messaggio.textContent = errore.message;
-                }
-            });
             formAcquisto.addEventListener("submit", gestisciFormAcquisto);
         }
 

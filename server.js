@@ -653,7 +653,11 @@ function validaPayloadAcquisto(dati) {
         throw new ErroreRichiesta("Il contenuto inviato deve essere un oggetto JSON.");
     }
 
-    if (!idInteroValido(dati.fornitoreId)) {
+    const fornitoreId = dati.fornitoreId === undefined || dati.fornitoreId === null || dati.fornitoreId === ""
+        ? null
+        : dati.fornitoreId;
+
+    if (fornitoreId !== null && !idInteroValido(fornitoreId)) {
         throw new ErroreRichiesta("fornitoreId deve essere un ID numerico valido.");
     }
 
@@ -690,7 +694,7 @@ function validaPayloadAcquisto(dati) {
     });
 
     return {
-        fornitoreId: dati.fornitoreId,
+        fornitoreId,
         dataAcquisto: dataAcquistoValida(dati.dataAcquisto),
         note: testoFacoltativo(dati, "note"),
         righe
@@ -1289,7 +1293,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     FROM (
                         SELECT
                             vendite.id AS riferimento,
-                            vendite.data_vendita AS data_movimento,
+                            to_char(vendite.data_vendita, 'YYYY-MM-DD') AS data_movimento,
                             'Vendita' AS operazione,
                             COALESCE(
                                 clienti.nome || ' ' || clienti.cognome,
@@ -1317,15 +1321,15 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
                         SELECT
                             acquisti.id AS riferimento,
-                            acquisti.data_acquisto AS data_movimento,
+                            to_char(acquisti.data_acquisto, 'YYYY-MM-DD') AS data_movimento,
                             'Acquisto' AS operazione,
-                            fornitori.nome AS soggetto,
+                            COALESCE(fornitori.nome, 'Acquisto senza fornitore') AS soggetto,
                             COALESCE(
                                 SUM(righe_acquisto.quantita * righe_acquisto.costo_unitario),
                                 0
                             ) AS importo
                         FROM public.acquisti AS acquisti
-                        JOIN public.fornitori AS fornitori
+                        LEFT JOIN public.fornitori AS fornitori
                             ON fornitori.id = acquisti.fornitore_id
                            AND fornitori.salone_id = acquisti.salone_id
                         LEFT JOIN public.righe_acquisto AS righe_acquisto
@@ -1341,7 +1345,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
                         SELECT
                             rettifiche_magazzino.id AS riferimento,
-                            rettifiche_magazzino.data_movimento,
+                            to_char(rettifiche_magazzino.data_movimento, 'YYYY-MM-DD') AS data_movimento,
                             CASE
                                 WHEN rettifiche_magazzino.motivo = $3
                                     THEN 'Giacenza iniziale'
@@ -1359,7 +1363,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
                         SELECT
                             clienti.id AS riferimento,
-                            clienti.creata_il AS data_movimento,
+                            to_char(clienti.creata_il, 'YYYY-MM-DD') AS data_movimento,
                             'Registrazione cliente' AS operazione,
                             clienti.nome || ' ' || clienti.cognome AS soggetto,
                             NULL::numeric AS importo
@@ -1370,7 +1374,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
                         SELECT
                             fornitori.id AS riferimento,
-                            fornitori.creata_il AS data_movimento,
+                            to_char(fornitori.creata_il, 'YYYY-MM-DD') AS data_movimento,
                             'Registrazione fornitore' AS operazione,
                             fornitori.nome AS soggetto,
                             NULL::numeric AS importo
@@ -1814,8 +1818,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 WITH acquisti_base AS (
                 SELECT
                     acquisti.id,
-                    acquisti.data_acquisto,
-                    fornitori.nome AS fornitore,
+                    to_char(acquisti.data_acquisto, 'YYYY-MM-DD') AS data_acquisto,
+                    COALESCE(fornitori.nome, 'Acquisto senza fornitore') AS fornitore,
                     COALESCE(
                         SUM(righe_acquisto.quantita * righe_acquisto.costo_unitario),
                         0
@@ -1835,7 +1839,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     ) AS righe,
                     COUNT(*) OVER() AS totale_risultati
                 FROM public.acquisti AS acquisti
-                JOIN public.fornitori AS fornitori
+                LEFT JOIN public.fornitori AS fornitori
                     ON fornitori.id = acquisti.fornitore_id
                    AND fornitori.salone_id = acquisti.salone_id
                 LEFT JOIN public.righe_acquisto AS righe_acquisto
@@ -1847,7 +1851,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 WHERE acquisti.salone_id = $1
                   AND (
                       $2 = ''
-                      OR fornitori.nome ILIKE '%' || $2 || '%'
+                      OR COALESCE(fornitori.nome, 'Acquisto senza fornitore') ILIKE '%' || $2 || '%'
                       OR EXISTS (
                           SELECT 1
                           FROM public.righe_acquisto AS righe_ricerca
@@ -1995,18 +1999,20 @@ const server = http.createServer(async (request, response) => {//async cosi poss
             await client.query("BEGIN");
             transazioneAvviata = true;
 
-            const fornitore = await client.query(
-                `
-                    SELECT id
-                    FROM public.fornitori
-                    WHERE id = $1
-                      AND salone_id = $2;
-                `,
-                [dati.fornitoreId, saloneId]
-            );
+            if (dati.fornitoreId !== null) {
+                const fornitore = await client.query(
+                    `
+                        SELECT id
+                        FROM public.fornitori
+                        WHERE id = $1
+                          AND salone_id = $2;
+                    `,
+                    [dati.fornitoreId, saloneId]
+                );
 
-            if (fornitore.rowCount === 0) {
-                throw new ErroreRichiesta("Il fornitore selezionato non esiste.", 404);
+                if (fornitore.rowCount === 0) {
+                    throw new ErroreRichiesta("Il fornitore selezionato non esiste.", 404);
+                }
             }
 
             const prodottiIds = [...new Set(dati.righe.map((riga) => riga.prodottoId))];

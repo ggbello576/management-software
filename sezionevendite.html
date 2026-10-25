@@ -24,23 +24,29 @@
         <nav class="navigazione" aria-label="Navigazione principale">
             <a href="/" class="pulsante-sezione">Panoramica</a>
             <a href="/magazzino" class="pulsante-sezione">Magazzino</a>
-            <a href="/conteggio-iniziale" class="pulsante-sezione">Conteggio iniziale</a>
             <a href="/acquisti" class="pulsante-sezione">Acquisti</a>
             <a href="/vendite" class="pulsante-sezione attivo">Vendite</a>
             <a href="/clienti" class="pulsante-sezione">Clienti</a>
             <a href="/prodotti" class="pulsante-sezione">Prodotti</a>
             <a href="/servizi" class="pulsante-sezione">Servizi</a>
             <a href="/fornitori" class="pulsante-sezione">Fornitori</a>
+            <a href="/conteggio-iniziale" class="pulsante-sezione">Conteggio iniziale</a>
         </nav>
 
         <form id="form-vendita" class="form-vendita">
             <section class="scheda-vendita">
-                <div class="titolo-sezione-vendita">
-                    <span class="numero-sezione">1</span>
-                    <div>
-                        <h2>Cliente</h2>
-                        <p>Puoi lasciare il campo vuoto per una vendita senza cliente registrata.</p>
+                <div class="intestazione-sezione-form">
+                    <div class="titolo-sezione-vendita">
+                        <span class="numero-sezione">1</span>
+                        <div>
+                            <h2>Cliente</h2>
+                            <p>Puoi lasciare il campo vuoto per una vendita senza cliente registrata.</p>
+                        </div>
                     </div>
+
+                    <a class="collegamento-sezione" href="/clienti" target="_blank" rel="noopener">
+                        Aggiungi nuova cliente
+                    </a>
                 </div>
 
                 <div class="campo-gestione">
@@ -91,9 +97,6 @@
                         </div>
                     </div>
 
-                    <button type="button" id="aggiungi-riga" class="pulsante-secondario">
-                        Aggiungi alla vendita
-                    </button>
                 </fieldset>
 
                 <div class="impostazioni-data-vendita">
@@ -122,6 +125,10 @@
                         ></textarea>
                     </div>
                 </div>
+
+                <button type="button" id="aggiungi-riga" class="pulsante-secondario pulsante-aggiungi-vendita">
+                    Aggiungi alla vendita
+                </button>
             </section>
 
             <section class="scheda-vendita scheda-vendita-riepilogo">

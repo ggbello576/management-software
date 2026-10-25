@@ -804,6 +804,10 @@ tbody tr:hover td {
     margin-top: 20px;
 }
 
+.pulsante-aggiungi-vendita {
+    margin-top: 16px;
+}
+
 .pulsante-salva {
     margin: 0 0 0 auto;
     background: var(--verde-scuro);
@@ -906,8 +910,54 @@ select:disabled {
     color: var(--testo-secondario);
 }
 
+.intestazione-sezione-form {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.intestazione-sezione-form .titolo-sezione-vendita {
+    min-width: 0;
+    margin-bottom: 20px;
+}
+
+.collegamento-sezione {
+    flex: 0 0 auto;
+    margin-top: 5px;
+    color: var(--verde);
+    font-weight: 800;
+    text-align: right;
+    text-decoration: none;
+}
+
+.collegamento-sezione:hover {
+    color: var(--verde-scuro);
+    text-decoration: underline;
+}
+
 .form-vendita > .scheda-vendita:last-child .pulsante-salva {
     display: flex;
+}
+
+.form-acquisto-coerente #messaggio-acquisto {
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--verde-scuro);
+    font-size: 0.95rem;
+    font-weight: 650;
+}
+
+.form-acquisto-coerente #messaggio-acquisto:not(:empty) {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    padding: 11px 14px;
+    border-color: #b9dbc9;
+    background: var(--verde-chiaro);
 }
 
 .pagina-login {
@@ -975,6 +1025,18 @@ select:disabled {
 
     .intestazione-vendite {
         padding-top: 8px;
+    }
+
+    .intestazione-sezione-form {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .collegamento-sezione {
+        align-self: flex-end;
+        margin-top: -8px;
+        margin-bottom: 16px;
+        text-align: left;
     }
 
     .link-home {
@@ -1444,6 +1506,10 @@ select:disabled {
     gap: 22px;
 }
 
+.dashboard-main-content .form-acquisto-coerente {
+    gap: 22px;
+}
+
 .dashboard-main-content .form-vendita > .scheda-vendita-riepilogo {
     border-color: #7fa8d1;
     background: linear-gradient(135deg, #ffffff 0%, #f3f8fe 100%);
@@ -1461,6 +1527,10 @@ select:disabled {
     padding: 16px;
     border: 1px solid var(--bordo);
     border-radius: 5px;
+    background: var(--bianco);
+}
+
+.dashboard-main-content .note-acquisto-sezione {
     background: var(--bianco);
 }
 
