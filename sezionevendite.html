@@ -43,10 +43,12 @@
                     </div>
                 </div>
 
-                <label for="cliente-vendita">Cliente abituale</label>
-                <select id="cliente-vendita" name="cliente">
-                    <option value="">Nessuna cliente selezionata</option>
-                </select>
+                <div class="campo-gestione">
+                    <label for="cliente-vendita">Cliente abituale</label>
+                    <select id="cliente-vendita" name="cliente">
+                        <option value="">Nessuna cliente selezionata</option>
+                    </select>
+                </div>
             </section>
 
             <section class="scheda-vendita">
@@ -93,6 +95,33 @@
                         Aggiungi alla vendita
                     </button>
                 </fieldset>
+
+                <div class="impostazioni-data-vendita">
+                    <div class="testo-data-vendita">
+                        <label for="data-vendita">Data</label>
+                        <p>Selezionare la data della vendita/delle vendite complessive. Più vendite devono avere la stessa data.</p>
+                    </div>
+
+                    <div class="campo-gestione campo-vendita-data">
+                        <input type="date" id="data-vendita" name="dataVendita" required>
+                    </div>
+                </div>
+
+                <div class="note-vendita-sezione">
+                    <div class="titolo-note-vendita">
+                        <h3 id="titolo-note-vendita">Note sulla vendita</h3>
+                    </div>
+
+                    <div class="campo-gestione campo-gestione-note">
+                        <textarea
+                            id="note-vendita"
+                            name="note"
+                            rows="3"
+                            placeholder="Facoltative"
+                            aria-labelledby="titolo-note-vendita"
+                        ></textarea>
+                    </div>
+                </div>
             </section>
 
             <section class="scheda-vendita scheda-vendita-riepilogo">
@@ -133,16 +162,6 @@
                 </div>
 
                 <div class="vendita-finalizzazione">
-                    <div class="note-vendita-compatto">
-                        <label for="note-vendita">Note sulla vendita</label>
-                        <textarea
-                            id="note-vendita"
-                            name="note"
-                            rows="2"
-                            placeholder="Facoltative"
-                        ></textarea>
-                    </div>
-
                     <p id="messaggio-vendita" aria-live="polite"></p>
 
                     <button type="submit" class="pulsante-salva">
@@ -155,19 +174,20 @@
         <section class="scheda-vendita storico-vendite">
             <h2>Vendite registrate</h2>
             <div class="tabella-vendita-scroll">
-                <table class="tabella-vendita">
+                <table class="tabella-vendita tabella-storico-vendite">
                     <thead>
                         <tr>
-                            <th scope="col">Data</th>
+                            <th scope="col" class="colonna-data-storico-vendite">Data</th>
                             <th scope="col">Cliente</th>
                             <th scope="col">Righe</th>
                             <th scope="col">Totale</th>
+                            <th scope="col">Note</th>
                             <th scope="col">Azione</th>
                         </tr>
                     </thead>
                     <tbody id="corpo-vendite">
                         <tr>
-                            <td colspan="5" class="tabella-vuota">Caricamento vendite…</td>
+                            <td colspan="6" class="tabella-vuota">Caricamento vendite…</td>
                         </tr>
                     </tbody>
                 </table>

@@ -26,6 +26,216 @@ const limiteTestoCella = 35;
 let tooltipCellaTabella = null;
 let popupCellaTabella = null;
 let elementoPrimaDelPopup = null;
+let popupAzioniTabella = null;
+let elementoPrimaDelPopupAzioni = null;
+const LIMITE_LISTE = 10;
+const statiListe = new Map();
+
+function normalizzaRispostaLista(risultato) {
+    if (Array.isArray(risultato)) {
+        return {
+            elementi: risultato,
+            paginazione: {
+                pagina: 1,
+                limite: risultato.length || LIMITE_LISTE,
+                totale: risultato.length,
+                pagine: 1
+            }
+        };
+    }
+
+    return {
+        elementi: Array.isArray(risultato?.elementi) ? risultato.elementi : [],
+        paginazione: risultato?.paginazione || {
+            pagina: 1,
+            limite: LIMITE_LISTE,
+            totale: 0,
+            pagine: 0
+        }
+    };
+}
+
+function configuraListaPaginata(idCorpo, segnaposto, ricarica) {
+    let stato = statiListe.get(idCorpo);
+
+    if (!stato) {
+        stato = {
+            pagina: 1,
+            ricerca: "",
+            richiesta: 0,
+            ricarica
+        };
+        statiListe.set(idCorpo, stato);
+    } else {
+        stato.ricarica = ricarica;
+    }
+
+    let controlli = document.querySelector(`[data-paginazione="${idCorpo}"]`);
+
+    if (!controlli) {
+        const corpo = document.getElementById(idCorpo);
+        const contenitoreTabella = corpo?.closest(".tabella-scroll, .tabella-gestione-scroll");
+
+        if (!corpo || !contenitoreTabella) {
+            return stato;
+        }
+
+        controlli = document.createElement("div");
+        controlli.className = "controlli-lista";
+        controlli.dataset.paginazione = idCorpo;
+
+        const campo = document.createElement("div");
+        campo.className = "campo-ricerca-lista";
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        const idRicerca = `${idCorpo}-ricerca`;
+        label.htmlFor = idRicerca;
+        label.textContent = "Cerca";
+        input.type = "search";
+        input.id = idRicerca;
+        input.placeholder = segnaposto;
+        input.autocomplete = "off";
+        input.value = stato.ricerca;
+        campo.append(label, input);
+
+        const riepilogo = document.createElement("span");
+        riepilogo.className = "riepilogo-paginazione";
+        riepilogo.setAttribute("aria-live", "polite");
+
+        const azioni = document.createElement("div");
+        azioni.className = "azioni-paginazione";
+        const precedente = document.createElement("button");
+        precedente.type = "button";
+        precedente.className = "pulsante-secondario";
+        precedente.textContent = "Precedente";
+        const successiva = document.createElement("button");
+        successiva.type = "button";
+        successiva.className = "pulsante-secondario";
+        successiva.textContent = "Successiva";
+        azioni.append(precedente, successiva);
+        controlli.append(campo, riepilogo, azioni);
+        contenitoreTabella.parentNode.insertBefore(controlli, contenitoreTabella);
+
+        let timerRicerca = null;
+        input.addEventListener("input", () => {
+            window.clearTimeout(timerRicerca);
+            timerRicerca = window.setTimeout(() => {
+                stato.ricerca = input.value.trim();
+                stato.pagina = 1;
+                stato.ricarica();
+            }, 250);
+        });
+        precedente.addEventListener("click", () => {
+            if (stato.pagina > 1) {
+                stato.pagina -= 1;
+                stato.ricarica();
+            }
+        });
+        successiva.addEventListener("click", () => {
+            const pagine = Number(stato.pagine || 1);
+            if (stato.pagina < pagine) {
+                stato.pagina += 1;
+                stato.ricarica();
+            }
+        });
+    }
+
+    return stato;
+}
+
+function urlListaPaginata(percorso, stato) {
+    const parametri = new URLSearchParams({
+        page: String(stato.pagina),
+        limit: String(LIMITE_LISTE)
+    });
+
+    if (stato.ricerca) {
+        parametri.set("search", stato.ricerca);
+    }
+
+    return `${percorso}?${parametri.toString()}`;
+}
+
+function dataLocaleISO() {
+    const oggi = new Date();
+    const anno = oggi.getFullYear();
+    const mese = String(oggi.getMonth() + 1).padStart(2, "0");
+    const giorno = String(oggi.getDate()).padStart(2, "0");
+    return `${anno}-${mese}-${giorno}`;
+}
+
+function inizializzaDataVendita() {
+    const campo = document.querySelector("#data-vendita");
+
+    if (campo && campo.value === "") {
+        campo.value = dataLocaleISO();
+    }
+}
+
+function formattaDataSenzaConversione(valore) {
+    if (typeof valore === "string" && /^\d{4}-\d{2}-\d{2}$/.test(valore)) {
+        const [anno, mese, giorno] = valore.slice(0, 10).split("-");
+        return `${giorno}/${mese}/${anno}`;
+    }
+
+    return new Date(valore).toLocaleDateString("it-IT");
+}
+
+function aggiornaControlliLista(idCorpo, paginazione, stato) {
+    const controlli = document.querySelector(`[data-paginazione="${idCorpo}"]`);
+
+    if (!controlli) {
+        return true;
+    }
+
+    const totale = Number(paginazione.totale) || 0;
+    const pagine = Number(paginazione.pagine) || 0;
+
+    if (totale === 0 && stato.pagina > 1) {
+        stato.pagina -= 1;
+        stato.ricarica();
+        return false;
+    }
+
+    if (pagine > 0 && stato.pagina > pagine) {
+        stato.pagina = pagine;
+        stato.ricarica();
+        return false;
+    }
+
+    stato.pagine = pagine;
+    const primo = totale === 0 ? 0 : ((stato.pagina - 1) * LIMITE_LISTE) + 1;
+    const ultimo = totale === 0 ? 0 : Math.min(stato.pagina * LIMITE_LISTE, totale);
+    controlli.querySelector(".riepilogo-paginazione").textContent =
+        `${primo}–${ultimo} di ${totale} risultati`;
+    controlli.querySelector("button").disabled = stato.pagina <= 1;
+    controlli.querySelectorAll("button")[1].disabled = pagine === 0 || stato.pagina >= pagine;
+    return true;
+}
+
+async function caricaTutteLePagine(percorso, ricerca = "") {
+    const elementi = [];
+    let pagina = 1;
+
+    while (true) {
+        const stato = { pagina, ricerca };
+        const risposta = await fetchDati(urlListaPaginata(percorso, stato));
+        const risultato = await risposta.json().catch(() => ({}));
+
+        if (!risposta.ok) {
+            throw new Error(risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`);
+        }
+
+        const dati = normalizzaRispostaLista(risultato);
+        elementi.push(...dati.elementi);
+
+        if (pagina >= Number(dati.paginazione.pagine || 1) || dati.elementi.length === 0) {
+            return elementi;
+        }
+
+        pagina += 1;
+    }
+}
 
 function leggiCookie(nome) {
     const voce = document.cookie
@@ -51,6 +261,8 @@ function mostraBarraSessione(sessione) {
 
     const informazioni = document.createElement("span");
     informazioni.textContent = `${sessione.utente.nome} — ${sessione.saloneAttivo.nome}`;
+
+    aggiornaNomeSaloneVisibile(sessione);
 
     const controlli = document.createElement("div");
     controlli.className = "controlli-sessione";
@@ -114,6 +326,18 @@ function mostraBarraSessione(sessione) {
 
     barra.append(informazioni, controlli);
     document.body.prepend(barra);
+}
+
+function aggiornaNomeSaloneVisibile(sessione = sessioneCorrente) {
+    const nomeSalone = sessione?.saloneAttivo?.nome;
+
+    if (!nomeSalone) {
+        return;
+    }
+
+    for (const elemento of document.querySelectorAll(".soprattitolo")) {
+        elemento.textContent = nomeSalone;
+    }
 }
 
 async function inizializzaSessione() {
@@ -346,17 +570,32 @@ function fetchDati(url, opzioni = {}) {
 async function caricaDatiMagazzino() {
     const corpoTabella = document.querySelector("#corpo-magazzino");
     const contatore = document.querySelector("#conteggio-riordino");
+    const stato = configuraListaPaginata(
+        "corpo-magazzino",
+        "prodotto o marca",
+        caricaDatiMagazzino
+    );
+    const richiesta = ++stato.richiesta;
 
     try {
-        const risposta = await fetchDati("/api/magazzino");
+        const risposta = await fetchDati(urlListaPaginata("/api/magazzino", stato));
 
         if (!risposta.ok) {
             throw new Error(`Richiesta fallita: HTTP ${risposta.status}`);
         }
 
-        const prodotti = await risposta.json();
+        const dati = normalizzaRispostaLista(await risposta.json());
+        if (richiesta !== stato.richiesta) {
+            return;
+        }
+        if (!aggiornaControlliLista("corpo-magazzino", dati.paginazione, stato)) {
+            return;
+        }
+        const prodotti = dati.elementi;
 
-        popolaProdottiRettifica(prodotti);
+        if (document.querySelector("#prodotto-rettifica")) {
+            popolaProdottiRettifica(await caricaTutteLePagine("/api/magazzino"));
+        }
 
         const prodottiDaRiordinare = prodotti.filter((prodotto) => {
             return Number(prodotto.giacenza) <= Number(prodotto.soglia_riordino);
@@ -476,22 +715,34 @@ async function caricaRettificheMagazzino() {
         return;
     }
 
+    const stato = configuraListaPaginata(
+        "corpo-rettifiche-magazzino",
+        "prodotto o motivo",
+        caricaRettificheMagazzino
+    );
+    const richiesta = ++stato.richiesta;
+
     try {
-        const risposta = await fetchDati("/api/rettifiche-magazzino");
-        const risultato = await risposta.json().catch(() => ({}));
+        const risposta = await fetchDati(urlListaPaginata("/api/rettifiche-magazzino", stato));
+        const risultato = normalizzaRispostaLista(await risposta.json().catch(() => ({})));
 
         if (!risposta.ok) {
             throw new Error(risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`);
         }
 
+        if (richiesta !== stato.richiesta || !aggiornaControlliLista("corpo-rettifiche-magazzino", risultato.paginazione, stato)) {
+            return;
+        }
+
+        chiudiPopupAzioni();
         corpo.replaceChildren();
 
-        if (risultato.length === 0) {
+        if (risultato.elementi.length === 0) {
             mostraErroreTabella("#corpo-rettifiche-magazzino", 5, "Non ci sono rettifiche registrate.");
             return;
         }
 
-        for (const rettifica of risultato) {
+        for (const rettifica of risultato.elementi) {
             const riga = document.createElement("tr");
             const valori = [
                 new Date(rettifica.data_movimento).toLocaleDateString("it-IT"),
@@ -506,8 +757,7 @@ async function caricaRettificheMagazzino() {
                 riga.appendChild(cella);
             }
 
-            const cellaAzione = document.createElement("td");
-            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
                 await cancellaRisorsa(
                     `/api/rettifiche-magazzino/${rettifica.id}`,
                     `Vuoi cancellare definitivamente la rettifica di ${rettifica.quantita_variazione} unità per "${rettifica.prodotto}"? La giacenza verrà ricalcolata.`,
@@ -517,8 +767,11 @@ async function caricaRettificheMagazzino() {
                         await caricaRettificheMagazzino();
                     }
                 );
-            }));
-            riga.appendChild(cellaAzione);
+            });
+            riga.appendChild(creaCellaAzioniPopup(
+                `rettifica di ${rettifica.prodotto}`,
+                [pulsanteCancella]
+            ));
             corpo.appendChild(riga);
         }
     } catch (errore) {
@@ -530,16 +783,27 @@ async function caricaRettificheMagazzino() {
 
 async function caricaClienti() {
     const corpoTabella = document.querySelector("#corpo-clienti");
+    const stato = configuraListaPaginata(
+        "corpo-clienti",
+        "nome, cognome o note",
+        caricaClienti
+    );
+    const richiesta = ++stato.richiesta;
 
     try {
-        const risposta = await fetchDati("/api/clienti");
+        const risposta = await fetchDati(urlListaPaginata("/api/clienti", stato));
 
         if (!risposta.ok) {
             throw new Error(`Richiesta fallita: HTTP ${risposta.status}`);
         }
 
-        const clienti = await risposta.json();
+        const dati = normalizzaRispostaLista(await risposta.json());
+        if (richiesta !== stato.richiesta || !aggiornaControlliLista("corpo-clienti", dati.paginazione, stato)) {
+            return;
+        }
+        const clienti = dati.elementi;
 
+        chiudiPopupAzioni();
         corpoTabella.replaceChildren();
 
         if (clienti.length === 0) {
@@ -578,16 +842,18 @@ async function caricaClienti() {
                 riga.appendChild(cella);
             }
 
-            const cellaAzione = document.createElement("td");
-            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
                 await cancellaRisorsa(
                     `/api/clienti/${cliente.id}`,
                     `Vuoi cancellare definitivamente la cliente "${cliente.nome} ${cliente.cognome}"?`,
                     document.querySelector("#messaggio-cancellazione-cliente"),
                     caricaClienti
                 );
-            }));
-            riga.appendChild(cellaAzione);
+            });
+            riga.appendChild(creaCellaAzioniPopup(
+                `cliente ${cliente.nome} ${cliente.cognome}`,
+                [pulsanteCancella]
+            ));
 
             corpoTabella.appendChild(riga);
         }
@@ -636,10 +902,7 @@ async function caricaRiepilogoPanoramica() {
             conteggioRiordino.textContent = prodottiDaRiordinare;
 
             if (schedaRiordino) {
-                schedaRiordino.classList.toggle(
-                    "scheda-statistica-riordino",
-                    prodottiDaRiordinare > 0
-                );
+                schedaRiordino.classList.add("scheda-statistica-riordino");
             }
         }
 
@@ -669,7 +932,7 @@ async function caricaRiepilogoPanoramica() {
         }
 
         if (schedaRiordino) {
-            schedaRiordino.classList.remove("scheda-statistica-riordino");
+            schedaRiordino.classList.add("scheda-statistica-riordino");
         }
     }
 }
@@ -713,7 +976,7 @@ async function caricaMovimentiRecenti() {
             }
 
             const valori = [
-                new Date(movimento.data_movimento).toLocaleDateString("it-IT"),
+                formattaDataSenzaConversione(movimento.data_movimento),
                 movimento.operazione,
                 movimento.soggetto,
                 movimento.importo === null
@@ -783,7 +1046,7 @@ async function caricaDettaglioCliente() {
             }).join(", ");
 
             const valori = [
-                new Date(vendita.data_vendita).toLocaleDateString("it-IT"),
+                formattaDataSenzaConversione(vendita.data_vendita),
                 elementi || "—",
                 vendita.note || "—",
                 formattaEuro(vendita.totale)
@@ -893,6 +1156,123 @@ function creaPulsanteCancellazione(testo, gestore) {
     return pulsante;
 }
 
+function chiudiPopupAzioni() {
+    if (!popupAzioniTabella) {
+        return;
+    }
+
+    const { popup, contenitore, pulsanti } = popupAzioniTabella;
+    pulsanti.forEach((pulsante) => contenitore.appendChild(pulsante));
+    popup.remove();
+    popupAzioniTabella = null;
+    document.body.classList.remove("popup-azioni-aperta");
+
+    if (
+        elementoPrimaDelPopupAzioni instanceof HTMLElement &&
+        document.contains(elementoPrimaDelPopupAzioni)
+    ) {
+        elementoPrimaDelPopupAzioni.focus();
+    }
+
+    elementoPrimaDelPopupAzioni = null;
+}
+
+function apriPopupAzioni(titoloContesto, contenitore, pulsanteApertura) {
+    chiudiPopupCella();
+    chiudiPopupAzioni();
+
+    const popup = document.createElement("div");
+    const pannello = document.createElement("section");
+    const intestazione = document.createElement("div");
+    const titolo = document.createElement("h2");
+    const chiudi = document.createElement("button");
+    const azioni = document.createElement("div");
+    const pulsanti = Array.from(contenitore.querySelectorAll("button"));
+
+    popup.className = "popup-azioni-tabella";
+    popup.setAttribute("role", "dialog");
+    popup.setAttribute("aria-modal", "true");
+    popup.setAttribute("aria-labelledby", "titolo-popup-azioni-tabella");
+
+    pannello.className = "popup-azioni-tabella-pannello";
+    intestazione.className = "popup-azioni-tabella-intestazione";
+    titolo.id = "titolo-popup-azioni-tabella";
+    titolo.textContent = `Azioni: ${titoloContesto}`;
+    chiudi.type = "button";
+    chiudi.className = "popup-azioni-tabella-chiudi";
+    chiudi.textContent = "Chiudi";
+    chiudi.setAttribute("aria-label", "Chiudi le azioni del record");
+    azioni.className = "popup-azioni-tabella-elenco";
+
+    pulsanti.forEach((pulsante) => azioni.appendChild(pulsante));
+
+    chiudi.addEventListener("click", chiudiPopupAzioni);
+    popup.addEventListener("click", (evento) => {
+        if (evento.target === popup) {
+            chiudiPopupAzioni();
+        }
+    });
+    popup.addEventListener("keydown", (evento) => {
+        if (evento.key === "Escape") {
+            evento.preventDefault();
+            chiudiPopupAzioni();
+            return;
+        }
+
+        if (evento.key !== "Tab") {
+            return;
+        }
+
+        const elementiFocalizzabili = [
+            chiudi,
+            ...azioni.querySelectorAll("button:not(:disabled)")
+        ];
+        const primo = elementiFocalizzabili[0];
+        const ultimo = elementiFocalizzabili[elementiFocalizzabili.length - 1];
+
+        if (evento.shiftKey && document.activeElement === primo) {
+            evento.preventDefault();
+            ultimo.focus();
+        } else if (!evento.shiftKey && document.activeElement === ultimo) {
+            evento.preventDefault();
+            primo.focus();
+        }
+    });
+
+    intestazione.append(titolo, chiudi);
+    pannello.append(intestazione, azioni);
+    popup.appendChild(pannello);
+    document.body.appendChild(popup);
+
+    popupAzioniTabella = { popup, contenitore, pulsanti };
+    elementoPrimaDelPopupAzioni = pulsanteApertura;
+    document.body.classList.add("popup-azioni-aperta");
+    chiudi.focus();
+}
+
+function creaCellaAzioniPopup(titoloContesto, pulsanti) {
+    const cella = document.createElement("td");
+    const modifica = document.createElement("button");
+    const contenitore = document.createElement("div");
+
+    modifica.type = "button";
+    modifica.className = "pulsante-tabella pulsante-modifica";
+    modifica.textContent = "Modifica";
+    modifica.setAttribute("aria-haspopup", "dialog");
+    modifica.setAttribute("aria-label", `Apri le azioni: ${titoloContesto}`);
+
+    contenitore.className = "azioni-tabella-nascoste";
+    contenitore.hidden = true;
+    contenitore.append(...pulsanti);
+
+    modifica.addEventListener("click", () => {
+        apriPopupAzioni(titoloContesto, contenitore, modifica);
+    });
+
+    cella.append(modifica, contenitore);
+    return cella;
+}
+
 async function cancellaRisorsa(url, testoConferma, messaggio, aggiorna) {
     if (!window.confirm(testoConferma)) {
         return false;
@@ -931,9 +1311,15 @@ async function cancellaRisorsa(url, testoConferma, messaggio, aggiorna) {
 async function caricaGestioneProdotti() {
     const corpo = document.querySelector("#corpo-prodotti");
     const messaggio = document.querySelector("#messaggio-prodotto");
+    const stato = configuraListaPaginata(
+        "corpo-prodotti",
+        "nome o marca",
+        caricaGestioneProdotti
+    );
+    const richiesta = ++stato.richiesta;
 
     try {
-        const risposta = await fetchDati("/api/prodotti");
+        const risposta = await fetchDati(urlListaPaginata("/api/prodotti", stato));
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -942,7 +1328,12 @@ async function caricaGestioneProdotti() {
             );
         }
 
-        const prodotti = await risposta.json();
+        const dati = normalizzaRispostaLista(await risposta.json());
+        if (richiesta !== stato.richiesta || !aggiornaControlliLista("corpo-prodotti", dati.paginazione, stato)) {
+            return;
+        }
+        const prodotti = dati.elementi;
+        chiudiPopupAzioni();
         corpo.replaceChildren();
 
         if (prodotti.length === 0) {
@@ -970,16 +1361,18 @@ async function caricaGestioneProdotti() {
                 riga.appendChild(cella);
             }
 
-            const cellaAzione = document.createElement("td");
-            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
                 await cancellaRisorsa(
                     `/api/prodotti/${prodotto.id}`,
                     `Vuoi cancellare definitivamente il prodotto "${prodotto.nome}"? Puoi farlo solo se non è collegato a movimenti.`,
                     messaggio,
                     caricaGestioneProdotti
                 );
-            }));
-            riga.appendChild(cellaAzione);
+            });
+            riga.appendChild(creaCellaAzioniPopup(
+                `prodotto ${prodotto.nome}`,
+                [pulsanteCancella]
+            ));
 
             corpo.appendChild(riga);
         }
@@ -1100,9 +1493,15 @@ async function gestisciFormRettificaMagazzino(evento) {
 async function caricaGestioneServizi() {
     const corpo = document.querySelector("#corpo-servizi");
     const messaggio = document.querySelector("#messaggio-servizio");
+    const stato = configuraListaPaginata(
+        "corpo-servizi",
+        "nome del servizio",
+        caricaGestioneServizi
+    );
+    const richiesta = ++stato.richiesta;
 
     try {
-        const risposta = await fetchDati("/api/servizi-gestione");
+        const risposta = await fetchDati(urlListaPaginata("/api/servizi-gestione", stato));
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -1111,7 +1510,12 @@ async function caricaGestioneServizi() {
             );
         }
 
-        const servizi = await risposta.json();
+        const dati = normalizzaRispostaLista(await risposta.json());
+        if (richiesta !== stato.richiesta || !aggiornaControlliLista("corpo-servizi", dati.paginazione, stato)) {
+            return;
+        }
+        const servizi = dati.elementi;
+        chiudiPopupAzioni();
         corpo.replaceChildren();
 
         if (servizi.length === 0) {
@@ -1137,16 +1541,18 @@ async function caricaGestioneServizi() {
                 riga.appendChild(cella);
             }
 
-            const cellaAzione = document.createElement("td");
-            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
                 await cancellaRisorsa(
                     `/api/servizi/${servizio.id}`,
                     `Vuoi cancellare definitivamente il servizio "${servizio.nome}"? Puoi farlo solo se non è collegato a vendite.`,
                     messaggio,
                     caricaGestioneServizi
                 );
-            }));
-            riga.appendChild(cellaAzione);
+            });
+            riga.appendChild(creaCellaAzioniPopup(
+                `servizio ${servizio.nome}`,
+                [pulsanteCancella]
+            ));
 
             corpo.appendChild(riga);
         }
@@ -1203,9 +1609,15 @@ async function gestisciFormServizio(evento) {
 async function caricaGestioneFornitori() {
     const corpo = document.querySelector("#corpo-fornitori");
     const messaggio = document.querySelector("#messaggio-fornitore");
+    const stato = configuraListaPaginata(
+        "corpo-fornitori",
+        "nome, telefono, email o note",
+        caricaGestioneFornitori
+    );
+    const richiesta = ++stato.richiesta;
 
     try {
-        const risposta = await fetchDati("/api/fornitori");
+        const risposta = await fetchDati(urlListaPaginata("/api/fornitori", stato));
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -1214,7 +1626,12 @@ async function caricaGestioneFornitori() {
             );
         }
 
-        const fornitori = await risposta.json();
+        const dati = normalizzaRispostaLista(await risposta.json());
+        if (richiesta !== stato.richiesta || !aggiornaControlliLista("corpo-fornitori", dati.paginazione, stato)) {
+            return;
+        }
+        const fornitori = dati.elementi;
+        chiudiPopupAzioni();
         corpo.replaceChildren();
 
         if (fornitori.length === 0) {
@@ -1242,16 +1659,18 @@ async function caricaGestioneFornitori() {
                 riga.appendChild(cella);
             }
 
-            const cellaAzione = document.createElement("td");
-            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
                 await cancellaRisorsa(
                     `/api/fornitori/${fornitore.id}`,
                     `Vuoi cancellare definitivamente il fornitore "${fornitore.nome}"? Puoi farlo solo se non è collegato ad acquisti.`,
                     messaggio,
                     caricaGestioneFornitori
                 );
-            }));
-            riga.appendChild(cellaAzione);
+            });
+            riga.appendChild(creaCellaAzioniPopup(
+                `fornitore ${fornitore.nome}`,
+                [pulsanteCancella]
+            ));
 
             corpo.appendChild(riga);
         }
@@ -1314,16 +1733,7 @@ async function caricaFornitoriPerAcquisto() {
         return;
     }
 
-    const risposta = await fetchDati("/api/fornitori");
-
-    if (!risposta.ok) {
-        const risultato = await risposta.json().catch(() => ({}));
-        throw new Error(
-            risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`
-        );
-    }
-
-    const fornitori = await risposta.json();
+    const fornitori = await caricaTutteLePagine("/api/fornitori");
     selectFornitore.replaceChildren();
     aggiungiOpzione(selectFornitore, "", "Seleziona un fornitore");
 
@@ -1341,16 +1751,7 @@ async function caricaProdottiPerAcquisto() {
         return;
     }
 
-    const risposta = await fetchDati("/api/prodotti");
-
-    if (!risposta.ok) {
-        const risultato = await risposta.json().catch(() => ({}));
-        throw new Error(
-            risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`
-        );
-    }
-
-    prodottiPerAcquisto = await risposta.json();
+    prodottiPerAcquisto = await caricaTutteLePagine("/api/prodotti");
     selectProdotto.replaceChildren();
     aggiungiOpzione(selectProdotto, "", "Seleziona un prodotto");
 
@@ -1373,6 +1774,7 @@ function mostraRigheAcquisto() {
         return;
     }
 
+    chiudiPopupAzioni();
     corpoTabella.replaceChildren();
 
     if (righeAcquisto.length === 0) {
@@ -1410,7 +1812,6 @@ function mostraRigheAcquisto() {
             riga.appendChild(cella);
         }
 
-        const cellaAzione = document.createElement("td");
         const pulsanteRimuovi = document.createElement("button");
 
         pulsanteRimuovi.type = "button";
@@ -1421,8 +1822,10 @@ function mostraRigheAcquisto() {
             mostraRigheAcquisto();
         });
 
-        cellaAzione.appendChild(pulsanteRimuovi);
-        riga.appendChild(cellaAzione);
+        riga.appendChild(creaCellaAzioniPopup(
+            `riga acquisto ${elemento.nome}`,
+            [pulsanteRimuovi]
+        ));
         corpoTabella.appendChild(riga);
     });
 
@@ -1491,8 +1894,15 @@ async function caricaElencoAcquisti() {
         return;
     }
 
+    const stato = configuraListaPaginata(
+        "corpo-acquisti",
+        "fornitore o prodotto",
+        caricaElencoAcquisti
+    );
+    const richiesta = ++stato.richiesta;
+
     try {
-        const risposta = await fetchDati("/api/acquisti");
+        const risposta = await fetchDati(urlListaPaginata("/api/acquisti", stato));
 
         if (!risposta.ok) {
             const risultato = await risposta.json().catch(() => ({}));
@@ -1501,7 +1911,12 @@ async function caricaElencoAcquisti() {
             );
         }
 
-        const acquisti = await risposta.json();
+        const dati = normalizzaRispostaLista(await risposta.json());
+        if (richiesta !== stato.richiesta || !aggiornaControlliLista("corpo-acquisti", dati.paginazione, stato)) {
+            return;
+        }
+        const acquisti = dati.elementi;
+        chiudiPopupAzioni();
         corpo.replaceChildren();
 
         if (acquisti.length === 0) {
@@ -1530,7 +1945,7 @@ async function caricaElencoAcquisti() {
                 riga.appendChild(cella);
             }
 
-            const cellaAzione = document.createElement("td");
+            const azioni = [];
             const messaggio = document.querySelector("#messaggio-acquisto");
 
             for (const rigaAcquisto of acquisto.righe) {
@@ -1548,7 +1963,7 @@ async function caricaElencoAcquisti() {
                         }
                     );
                 });
-                cellaAzione.appendChild(pulsante);
+                azioni.push(pulsante);
             }
 
             const pulsanteAcquisto = creaPulsanteCancellazione("Cancella acquisto", async () => {
@@ -1602,8 +2017,11 @@ async function caricaElencoAcquisti() {
                     }
                 );
             });
-            cellaAzione.appendChild(pulsanteAcquisto);
-            riga.appendChild(cellaAzione);
+            azioni.push(pulsanteAcquisto);
+            riga.appendChild(creaCellaAzioniPopup(
+                `acquisto del ${new Date(acquisto.data_acquisto).toLocaleDateString("it-IT")} da ${acquisto.fornitore}`,
+                azioni
+            ));
 
             corpo.appendChild(riga);
         }
@@ -1695,30 +2113,44 @@ async function caricaElencoVendite() {
         return;
     }
 
+    const stato = configuraListaPaginata(
+        "corpo-vendite",
+        "cliente, prodotto, servizio o note",
+        caricaElencoVendite
+    );
+    const richiesta = ++stato.richiesta;
+
     try {
-        const risposta = await fetchDati("/api/vendite");
+        const risposta = await fetchDati(urlListaPaginata("/api/vendite", stato));
         const risultato = await risposta.json().catch(() => ({}));
 
         if (!risposta.ok) {
             throw new Error(risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`);
         }
 
-        corpo.replaceChildren();
-
-        if (risultato.length === 0) {
-            mostraErroreTabella("#corpo-vendite", 5, "Non ci sono vendite registrate.");
+        const dati = normalizzaRispostaLista(risultato);
+        if (richiesta !== stato.richiesta || !aggiornaControlliLista("corpo-vendite", dati.paginazione, stato)) {
             return;
         }
 
-        for (const vendita of risultato) {
+        chiudiPopupAzioni();
+        corpo.replaceChildren();
+
+        if (dati.elementi.length === 0) {
+            mostraErroreTabella("#corpo-vendite", 6, "Non ci sono vendite registrate.");
+            return;
+        }
+
+        for (const vendita of dati.elementi) {
             const riga = document.createElement("tr");
             const valori = [
-                new Date(vendita.data_vendita).toLocaleDateString("it-IT"),
+                formattaDataSenzaConversione(vendita.data_vendita),
                 vendita.cliente || "Vendita senza cliente",
                 vendita.righe.map((rigaVendita) => {
                     return `${rigaVendita.elemento} × ${rigaVendita.quantita} (${formattaEuro(rigaVendita.prezzoUnitario)})`;
                 }).join(", ") || "—",
-                formattaEuro(vendita.totale)
+                formattaEuro(vendita.totale),
+                vendita.note || "—"
             ];
 
             for (const valore of valori) {
@@ -1727,11 +2159,11 @@ async function caricaElencoVendite() {
                 riga.appendChild(cella);
             }
 
-            const cellaAzione = document.createElement("td");
+            const azioni = [];
             const messaggio = document.querySelector("#messaggio-vendita");
 
             for (const rigaVendita of vendita.righe) {
-                cellaAzione.appendChild(creaPulsanteCancellazione(`Riga ${rigaVendita.elemento}`, async () => {
+                azioni.push(creaPulsanteCancellazione(`Riga ${rigaVendita.elemento}`, async () => {
                     await cancellaRisorsa(
                         `/api/righe-vendita/${rigaVendita.id}`,
                         `Vuoi cancellare definitivamente la riga "${rigaVendita.elemento}" (${rigaVendita.quantita} unità)? La giacenza verrà ricalcolata se è un prodotto.`,
@@ -1747,10 +2179,10 @@ async function caricaElencoVendite() {
                 }));
             }
 
-            cellaAzione.appendChild(creaPulsanteCancellazione("Cancella vendita", async () => {
+            azioni.push(creaPulsanteCancellazione("Cancella vendita", async () => {
                 await cancellaRisorsa(
                     `/api/vendite/${vendita.id}`,
-                    `Vuoi cancellare definitivamente la vendita del ${new Date(vendita.data_vendita).toLocaleDateString("it-IT")}? Le righe saranno rimosse e la giacenza verrà ricalcolata.`,
+                    `Vuoi cancellare definitivamente la vendita del ${formattaDataSenzaConversione(vendita.data_vendita)}? Le righe saranno rimosse e la giacenza verrà ricalcolata.`,
                     messaggio,
                     async () => {
                         await caricaElencoVendite();
@@ -1758,12 +2190,15 @@ async function caricaElencoVendite() {
                     }
                 );
             }));
-            riga.appendChild(cellaAzione);
+            riga.appendChild(creaCellaAzioniPopup(
+                `vendita del ${formattaDataSenzaConversione(vendita.data_vendita)}`,
+                azioni
+            ));
             corpo.appendChild(riga);
         }
     } catch (errore) {
         console.error("Errore nel caricamento delle vendite:", errore);
-        mostraErroreTabella("#corpo-vendite", 5, "Impossibile caricare le vendite.");
+        mostraErroreTabella("#corpo-vendite", 6, "Impossibile caricare le vendite.");
     }
 }
 
@@ -1848,21 +2283,11 @@ async function caricaDatiVendita() {
     const messaggio = document.querySelector("#messaggio-vendita");
 
     try {
-        const risposte = await Promise.all([
-            fetchDati("/api/clienti"),
-            fetchDati("/api/magazzino"),
-            fetchDati("/api/servizi")
+        const [clienti, prodotti, servizi] = await Promise.all([
+            caricaTutteLePagine("/api/clienti"),
+            caricaTutteLePagine("/api/magazzino"),
+            caricaTutteLePagine("/api/servizi")
         ]);
-
-        for (const risposta of risposte) {
-            if (!risposta.ok) {
-                throw new Error(`Richiesta fallita: HTTP ${risposta.status}`);
-            }
-        }
-
-        const [clienti, prodotti, servizi] = await Promise.all(
-            risposte.map((risposta) => risposta.json())
-        );
 
         prodottiPerVendita = prodotti;
         serviziPerVendita = servizi;
@@ -1896,6 +2321,7 @@ function mostraRigheVendita() {
         return;
     }
 
+    chiudiPopupAzioni();
     corpoTabella.replaceChildren();
 
     const formatoEuro = new Intl.NumberFormat("it-IT", {
@@ -1939,7 +2365,6 @@ function mostraRigheVendita() {
             riga.appendChild(cella);
         }
 
-        const cellaAzione = document.createElement("td");
         const pulsanteRimuovi = document.createElement("button");
 
         pulsanteRimuovi.type = "button";
@@ -1950,8 +2375,10 @@ function mostraRigheVendita() {
             mostraRigheVendita();
         });
 
-        cellaAzione.appendChild(pulsanteRimuovi);
-        riga.appendChild(cellaAzione);
+        riga.appendChild(creaCellaAzioniPopup(
+            `riga vendita ${elemento.nome}`,
+            [pulsanteRimuovi]
+        ));
         corpoTabella.appendChild(riga);
     });
 
@@ -2036,6 +2463,11 @@ async function gestisciFormVendita(evento) {
     const selectCliente = document.querySelector("#cliente-vendita");
     const messaggio = document.querySelector("#messaggio-vendita");
 
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
     if (righeVendita.length === 0) {
         messaggio.textContent = "Aggiungi almeno un prodotto o servizio.";
         return;
@@ -2045,6 +2477,7 @@ async function gestisciFormVendita(evento) {
         clienteId: selectCliente.value === ""
             ? null
             : Number(selectCliente.value),
+        dataVendita: form.elements.dataVendita.value,
         note: form.elements.note.value.trim() || null,
         righe: righeVendita.map((riga) => ({
             tipo: riga.tipo,
@@ -2071,6 +2504,7 @@ async function gestisciFormVendita(evento) {
         }
 
         form.reset();
+        inizializzaDataVendita();
         righeVendita = [];
         mostraRigheVendita();
         messaggio.textContent = "Vendita salvata.";
@@ -2317,6 +2751,7 @@ async function caricaSezioneApplicazione(percorso, opzioni = {}) {
         const contenuto = estraiContenutoPagina(html, percorso);
 
         shellApplicazione.content.replaceChildren(contenuto.frammento);
+        aggiornaNomeSaloneVisibile();
         shellApplicazione.main.classList.toggle("dashboard-home", percorso === "/");
         shellApplicazione.main.classList.toggle("dashboard-page-shell", percorso !== "/");
         document.title = contenuto.titolo;
@@ -2524,6 +2959,7 @@ async function inizializzaPaginaVisibile() {
 
         if (formVendita.dataset.inizializzato !== "true") {
             formVendita.dataset.inizializzato = "true";
+            inizializzaDataVendita();
             tipoElemento?.addEventListener("change", aggiornaElencoElementi);
             pulsanteAggiungi?.addEventListener("click", aggiungiRigaVendita);
             formVendita.addEventListener("submit", gestisciFormVendita);
@@ -2855,6 +3291,7 @@ function inizializzaGestoreTabelle() {
 
     document.addEventListener("keydown", (evento) => {
         if (evento.key === "Escape") {
+            chiudiPopupAzioni();
             chiudiPopupCella();
             return;
         }

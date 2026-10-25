@@ -50,6 +50,8 @@ const API_PROTETTE = new Set([
 
 const RUOLO_AMMINISTRATORE = "amministratore";
 const RUOLO_OPERATORE = "operatore";
+const LIMITE_PAGINA_MASSIMO = 10;
+const LIMITE_RICERCA_MASSIMO = 100;
 
 function percorsoPaginaProtetto(percorso) {
     return PAGINE_PROTETTE.has(percorso) || /^\/clienti\/\d+$/.test(percorso);
@@ -114,6 +116,65 @@ function rispondiJson(response, stato, dati, intestazioni = {}) {
     });
 
     response.end(JSON.stringify(dati));
+}
+
+function leggiPaginazione(url) {
+    const paginaParametro = url.searchParams.get("page") || "1";
+    const limiteParametro = url.searchParams.get("limit") || String(LIMITE_PAGINA_MASSIMO);
+    const ricerca = url.searchParams.get("search") || "";
+    const pagina = Number(paginaParametro);
+    const limite = Number(limiteParametro);
+
+    if (!/^\d+$/.test(paginaParametro) || !Number.isSafeInteger(pagina) || pagina < 1) {
+        throw new ErroreRichiesta("Il parametro page deve essere un intero positivo.");
+    }
+
+    if (!/^\d+$/.test(limiteParametro) || !Number.isSafeInteger(limite) || limite < 1 || limite > LIMITE_PAGINA_MASSIMO) {
+        throw new ErroreRichiesta(`Il parametro limit deve essere compreso tra 1 e ${LIMITE_PAGINA_MASSIMO}.`);
+    }
+
+    if (ricerca.length > LIMITE_RICERCA_MASSIMO) {
+        throw new ErroreRichiesta(`La ricerca può contenere al massimo ${LIMITE_RICERCA_MASSIMO} caratteri.`);
+    }
+
+    const offset = (pagina - 1) * limite;
+
+    if (!Number.isSafeInteger(offset)) {
+        throw new ErroreRichiesta("Il parametro page è troppo grande.");
+    }
+
+    return {
+        pagina,
+        limite,
+        offset,
+        ricerca: ricerca.trim()
+    };
+}
+
+function rispondiPagina(response, risultato, paginazione) {
+    const totale = risultato.rows.length > 0
+        ? Number(risultato.rows[0].totale_risultati)
+        : 0;
+    const elementi = risultato.rows.map(({ totale_risultati, ...riga }) => riga);
+
+    rispondiJson(response, 200, {
+        elementi,
+        paginazione: {
+            pagina: paginazione.pagina,
+            limite: paginazione.limite,
+            totale,
+            pagine: Math.ceil(totale / paginazione.limite)
+        }
+    });
+}
+
+function rispondiErrorePaginazione(response, errore, messaggio) {
+    if (errore instanceof ErroreRichiesta) {
+        rispondiJson(response, errore.stato, { errore: errore.message });
+        return;
+    }
+
+    rispondiErroreOperazione(response, errore, messaggio);
 }
 
 function rispondiPaginaNonDisponibile(response) {
@@ -264,6 +325,8 @@ function validaPayloadVendita(dati) {
         ? null
         : dati.clienteId;
 
+    const dataVendita = dataVenditaValida(dati.dataVendita);
+
     if (clienteId !== null && !idInteroValido(clienteId)) {
         throw new ErroreRichiesta("clienteId deve essere null oppure un ID numerico valido.");
     }
@@ -310,6 +373,7 @@ function validaPayloadVendita(dati) {
 
     return {
         clienteId,
+        dataVendita,
         note: typeof dati.note === "string" ? dati.note.trim() || null : null,
         righe
     };
@@ -565,6 +629,20 @@ function dataAcquistoValida(valore) {
 
     if (Number.isNaN(data.getTime()) || data.toISOString().slice(0, 10) !== valore) {
         throw new ErroreRichiesta("La data dell'acquisto non è valida.");
+    }
+
+    return valore;
+}
+
+function dataVenditaValida(valore) {
+    if (typeof valore !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(valore)) {
+        throw new ErroreRichiesta("La data della vendita deve essere nel formato AAAA-MM-GG.");
+    }
+
+    const data = new Date(`${valore}T00:00:00Z`);
+
+    if (Number.isNaN(data.getTime()) || data.toISOString().slice(0, 10) !== valore) {
+        throw new ErroreRichiesta("La data della vendita non è valida.");
     }
 
     return valore;
@@ -1047,9 +1125,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
                 }   else if (
                 request.method === "GET" &&//se il metodo è get
-                request.url === "/api/magazzino"//e il percorso è /api/magazzino
+                percorso === "/api/magazzino"//e il percorso è /api/magazzino
                 ) {//try in caso di qualsiasi errore
                 try {//mandi la query sql e dai await cosi aspetti che sql risponda
+                    const paginazione = leggiPaginazione(url);
                     const risultato = await pool.query(`
                     WITH movimenti_magazzino AS (
                         SELECT
@@ -1084,36 +1163,33 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         prodotti.marca,
                         GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza,
                         prodotti.soglia_riordino,
-                        prodotti.prezzo_vendita
+                        prodotti.prezzo_vendita,
+                        COUNT(*) OVER() AS totale_risultati
                     FROM public.prodotti AS prodotti
                     LEFT JOIN movimenti_magazzino
                         ON movimenti_magazzino.prodotto_id = prodotti.id
                        AND movimenti_magazzino.salone_id = prodotti.salone_id
                     WHERE prodotti.salone_id = $1
+                      AND (
+                          $2 = ''
+                          OR prodotti.nome ILIKE '%' || $2 || '%'
+                          OR COALESCE(prodotti.marca, '') ILIKE '%' || $2 || '%'
+                      )
                     GROUP BY
                         prodotti.id,
                         prodotti.nome,
                         prodotti.marca,
                         prodotti.soglia_riordino,
                         prodotti.prezzo_vendita
-                    ORDER BY prodotti.nome;
-                `, [saloneId]);
+                    ORDER BY prodotti.nome, prodotti.id
+                    LIMIT $3 OFFSET $4;
+                `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-                response.writeHead(200, {//invia codice http 200, che indica il codice della risposta che il server invia per indicare che la richiesta è riuscita.
-                    "Content-Type": "application/json; charset=utf-8"
-                });
-
-                response.end(JSON.stringify(risultato.rows));//ris.rows contiene le righe restituite da PostgreSQL e le trasforma in json, foramto che il browser puo ricevere.invia il contenuto e chiude la risposta HTTP.
+                rispondiPagina(response, risultato, paginazione);
             } catch (errore) {
                 console.error("Errore nel caricamento del magazzino:", errore);
 
-                response.writeHead(500, {//500 http = errore interno nel server
-                    "Content-Type": "application/json; charset=utf-8"
-                });
-
-                response.end(JSON.stringify({
-                    errore: "Errore interno del server"
-                }));
+                rispondiErrorePaginazione(response, errore, "Impossibile caricare il magazzino.");
 
             }
 
@@ -1164,9 +1240,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         }
             } else if (
         request.method === "GET" &&
-        request.url === "/api/rettifiche-magazzino"
+        percorso === "/api/rettifiche-magazzino"
     ) {
         try {
+            const paginazione = leggiPaginazione(url);
             const risultato = await pool.query(`
                 SELECT
                     rettifiche_magazzino.id,
@@ -1174,20 +1251,28 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     rettifiche_magazzino.quantita_variazione,
                     rettifiche_magazzino.motivo,
                     prodotti.nome AS prodotto,
-                    prodotti.marca
+                    prodotti.marca,
+                    COUNT(*) OVER() AS totale_risultati
                 FROM public.rettifiche_magazzino AS rettifiche_magazzino
                 JOIN public.prodotti AS prodotti
                     ON prodotti.id = rettifiche_magazzino.prodotto_id
                    AND prodotti.salone_id = rettifiche_magazzino.salone_id
                 WHERE rettifiche_magazzino.salone_id = $1
+                  AND (
+                      $2 = ''
+                      OR prodotti.nome ILIKE '%' || $2 || '%'
+                      OR COALESCE(prodotti.marca, '') ILIKE '%' || $2 || '%'
+                      OR COALESCE(rettifiche_magazzino.motivo, '') ILIKE '%' || $2 || '%'
+                  )
                 ORDER BY
                     rettifiche_magazzino.data_movimento DESC,
-                    rettifiche_magazzino.id DESC;
-            `, [saloneId]);
+                    rettifiche_magazzino.id DESC
+                LIMIT $3 OFFSET $4;
+            `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-            rispondiJson(response, 200, risultato.rows);
+            rispondiPagina(response, risultato, paginazione);
         } catch (errore) {
-            rispondiErroreOperazione(
+            rispondiErrorePaginazione(
                 response,
                 errore,
                 "Impossibile caricare le rettifiche di magazzino."
@@ -1195,7 +1280,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         }
             } else if (
         request.method === "GET" &&
-        request.url === "/api/movimenti-recenti"
+        percorso === "/api/movimenti-recenti"
     ) {
         try {
             const risultato = await pool.query(
@@ -1292,10 +1377,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                         FROM public.fornitori AS fornitori
                         WHERE fornitori.salone_id = $1
                     ) AS movimenti
-                    ORDER BY data_movimento DESC, riferimento DESC
+                    ORDER BY data_movimento DESC, operazione ASC, riferimento DESC
                     LIMIT $2;
                 `,
-                [saloneId, 20, MOTIVO_GIACENZA_INIZIALE]
+                [saloneId, 10, MOTIVO_GIACENZA_INIZIALE]
             );
 
             rispondiJson(response, 200, risultato.rows);
@@ -1401,9 +1486,10 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         }
             } else if (
         request.method === "GET" &&
-        request.url === "/api/prodotti"
+        percorso === "/api/prodotti"
     ) {
         try {
+            const paginazione = leggiPaginazione(url);
             const risultato = await pool.query(`
                 WITH movimenti_magazzino AS (
                     SELECT
@@ -1438,30 +1524,32 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     prodotti.marca,
                     prodotti.prezzo_vendita,
                     prodotti.soglia_riordino,
-                    GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza
+                    GREATEST(COALESCE(SUM(movimenti_magazzino.variazione), 0), 0)::integer AS giacenza,
+                    COUNT(*) OVER() AS totale_risultati
                 FROM public.prodotti AS prodotti
                 LEFT JOIN movimenti_magazzino
                     ON movimenti_magazzino.prodotto_id = prodotti.id
                    AND movimenti_magazzino.salone_id = prodotti.salone_id
                 WHERE prodotti.salone_id = $1
+                  AND (
+                      $2 = ''
+                      OR prodotti.nome ILIKE '%' || $2 || '%'
+                      OR COALESCE(prodotti.marca, '') ILIKE '%' || $2 || '%'
+                  )
                 GROUP BY
                     prodotti.id,
                     prodotti.nome,
                     prodotti.marca,
                     prodotti.prezzo_vendita,
                     prodotti.soglia_riordino
-                ORDER BY prodotti.nome;
-            `, [saloneId]);
+                ORDER BY prodotti.nome, prodotti.id
+                LIMIT $3 OFFSET $4;
+            `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-            rispondiJson(response, 200, risultato.rows);
+            rispondiPagina(response, risultato, paginazione);
         } catch (errore) {
             console.error("Errore nel caricamento dei prodotti:", errore);
-            rispondiJson(response, 500, {
-                errore: messaggioErroreDatabase(
-                    errore,
-                    "Impossibile caricare i prodotti."
-                )
-            });
+            rispondiErrorePaginazione(response, errore, "Impossibile caricare i prodotti.");
         }
     } else if (
         request.method === "POST" &&
@@ -1596,25 +1684,24 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         }
     } else if (
         request.method === "GET" &&
-        request.url === "/api/servizi-gestione"
+        percorso === "/api/servizi-gestione"
     ) {
         try {
+            const paginazione = leggiPaginazione(url);
             const risultato = await pool.query(`
-                SELECT id, nome, prezzo, attivo
+                SELECT id, nome, prezzo, attivo,
+                       COUNT(*) OVER() AS totale_risultati
                 FROM public.servizi
                 WHERE salone_id = $1
-                ORDER BY nome;
-            `, [saloneId]);
+                  AND ($2 = '' OR nome ILIKE '%' || $2 || '%')
+                ORDER BY nome, id
+                LIMIT $3 OFFSET $4;
+            `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-            rispondiJson(response, 200, risultato.rows);
+            rispondiPagina(response, risultato, paginazione);
         } catch (errore) {
             console.error("Errore nel caricamento dei servizi:", errore);
-            rispondiJson(response, 500, {
-                errore: messaggioErroreDatabase(
-                    errore,
-                    "Impossibile caricare i servizi."
-                )
-            });
+            rispondiErrorePaginazione(response, errore, "Impossibile caricare i servizi.");
         }
     } else if (
         request.method === "POST" &&
@@ -1655,25 +1742,30 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         }
     } else if (
         request.method === "GET" &&
-        request.url === "/api/fornitori"
+        percorso === "/api/fornitori"
     ) {
         try {
+            const paginazione = leggiPaginazione(url);
             const risultato = await pool.query(`
-                SELECT id, nome, telefono, email, note, creata_il
+                SELECT id, nome, telefono, email, note, creata_il,
+                       COUNT(*) OVER() AS totale_risultati
                 FROM public.fornitori
                 WHERE salone_id = $1
-                ORDER BY nome, id;
-            `, [saloneId]);
+                  AND (
+                      $2 = ''
+                      OR nome ILIKE '%' || $2 || '%'
+                      OR COALESCE(telefono, '') ILIKE '%' || $2 || '%'
+                      OR COALESCE(email, '') ILIKE '%' || $2 || '%'
+                      OR COALESCE(note, '') ILIKE '%' || $2 || '%'
+                  )
+                ORDER BY nome, id
+                LIMIT $3 OFFSET $4;
+            `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-            rispondiJson(response, 200, risultato.rows);
+            rispondiPagina(response, risultato, paginazione);
         } catch (errore) {
             console.error("Errore nel caricamento dei fornitori:", errore);
-            rispondiJson(response, 500, {
-                errore: messaggioErroreDatabase(
-                    errore,
-                    "Impossibile caricare i fornitori."
-                )
-            });
+            rispondiErrorePaginazione(response, errore, "Impossibile caricare i fornitori.");
         }
     } else if (
         request.method === "POST" &&
@@ -1714,10 +1806,12 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         }
     } else if (
         request.method === "GET" &&
-        request.url === "/api/acquisti"
+        percorso === "/api/acquisti"
     ) {
         try {
+            const paginazione = leggiPaginazione(url);
             const risultato = await pool.query(`
+                WITH acquisti_base AS (
                 SELECT
                     acquisti.id,
                     acquisti.data_acquisto,
@@ -1738,7 +1832,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                             ORDER BY righe_acquisto.id
                         ) FILTER (WHERE righe_acquisto.id IS NOT NULL),
                         '[]'::json
-                    ) AS righe
+                    ) AS righe,
+                    COUNT(*) OVER() AS totale_risultati
                 FROM public.acquisti AS acquisti
                 JOIN public.fornitori AS fornitori
                     ON fornitori.id = acquisti.fornitore_id
@@ -1750,32 +1845,48 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     ON prodotti.id = righe_acquisto.prodotto_id
                    AND prodotti.salone_id = righe_acquisto.salone_id
                 WHERE acquisti.salone_id = $1
+                  AND (
+                      $2 = ''
+                      OR fornitori.nome ILIKE '%' || $2 || '%'
+                      OR EXISTS (
+                          SELECT 1
+                          FROM public.righe_acquisto AS righe_ricerca
+                          JOIN public.prodotti AS prodotti_ricerca
+                              ON prodotti_ricerca.id = righe_ricerca.prodotto_id
+                             AND prodotti_ricerca.salone_id = righe_ricerca.salone_id
+                          WHERE righe_ricerca.acquisto_id = acquisti.id
+                            AND righe_ricerca.salone_id = acquisti.salone_id
+                            AND prodotti_ricerca.nome ILIKE '%' || $2 || '%'
+                      )
+                  )
                 GROUP BY
                     acquisti.id,
                     acquisti.data_acquisto,
                     fornitori.nome
-                ORDER BY acquisti.data_acquisto DESC, acquisti.id DESC;
-            `, [saloneId]);
+                ORDER BY acquisti.data_acquisto DESC, acquisti.id DESC
+                LIMIT $3 OFFSET $4
+                )
+                SELECT *
+                FROM acquisti_base
+                ORDER BY data_acquisto DESC, id DESC;
+            `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-            rispondiJson(response, 200, risultato.rows);
+            rispondiPagina(response, risultato, paginazione);
         } catch (errore) {
             console.error("Errore nel caricamento degli acquisti:", errore);
-            rispondiJson(response, 500, {
-                errore: messaggioErroreDatabase(
-                    errore,
-                    "Impossibile caricare gli acquisti."
-                )
-            });
+            rispondiErrorePaginazione(response, errore, "Impossibile caricare gli acquisti.");
         }
     } else if (
         request.method === "GET" &&
-        request.url === "/api/vendite"
+        percorso === "/api/vendite"
     ) {
         try {
+            const paginazione = leggiPaginazione(url);
             const risultato = await pool.query(`
+                WITH vendite_base AS (
                 SELECT
                     vendite.id,
-                    vendite.data_vendita,
+                    to_char(vendite.data_vendita, 'YYYY-MM-DD') AS data_vendita,
                     vendite.note,
                     COALESCE(
                         clienti.nome || ' ' || clienti.cognome,
@@ -1801,7 +1912,8 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                             ORDER BY righe_vendita.id
                         ) FILTER (WHERE righe_vendita.id IS NOT NULL),
                         '[]'::json
-                    ) AS righe
+                    ) AS righe,
+                    COUNT(*) OVER() AS totale_risultati
                 FROM public.vendite AS vendite
                 LEFT JOIN public.clienti AS clienti
                     ON clienti.id = vendite.cliente_id
@@ -1816,18 +1928,41 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                     ON servizi.id = righe_vendita.servizio_id
                    AND servizi.salone_id = righe_vendita.salone_id
                 WHERE vendite.salone_id = $1
+                  AND (
+                      $2 = ''
+                      OR COALESCE(clienti.nome || ' ' || clienti.cognome, 'Vendita senza cliente') ILIKE '%' || $2 || '%'
+                      OR COALESCE(vendite.note, '') ILIKE '%' || $2 || '%'
+                      OR EXISTS (
+                          SELECT 1
+                          FROM public.righe_vendita AS righe_ricerca
+                          LEFT JOIN public.prodotti AS prodotti_ricerca
+                              ON prodotti_ricerca.id = righe_ricerca.prodotto_id
+                             AND prodotti_ricerca.salone_id = righe_ricerca.salone_id
+                          LEFT JOIN public.servizi AS servizi_ricerca
+                              ON servizi_ricerca.id = righe_ricerca.servizio_id
+                             AND servizi_ricerca.salone_id = righe_ricerca.salone_id
+                          WHERE righe_ricerca.vendita_id = vendite.id
+                            AND righe_ricerca.salone_id = vendite.salone_id
+                            AND COALESCE(prodotti_ricerca.nome, servizi_ricerca.nome) ILIKE '%' || $2 || '%'
+                      )
+                  )
                 GROUP BY
                     vendite.id,
                     vendite.data_vendita,
                     vendite.note,
                     clienti.nome,
                     clienti.cognome
-                ORDER BY vendite.data_vendita DESC, vendite.id DESC;
-            `, [saloneId]);
+                ORDER BY vendite.data_vendita DESC, vendite.id DESC
+                LIMIT $3 OFFSET $4
+                )
+                SELECT *
+                FROM vendite_base
+                ORDER BY data_vendita DESC, id DESC;
+            `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-            rispondiJson(response, 200, risultato.rows);
+            rispondiPagina(response, risultato, paginazione);
         } catch (errore) {
-            rispondiErroreOperazione(
+            rispondiErrorePaginazione(
                 response,
                 errore,
                 "Impossibile caricare le vendite."
@@ -1977,32 +2112,26 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
         }    else if (
         request.method === "GET" &&
-        request.url === "/api/servizi"
+        percorso === "/api/servizi"
     ) {
         try {
+            const paginazione = leggiPaginazione(url);
             const risultato = await pool.query(`
-                SELECT id, nome, prezzo
+                SELECT id, nome, prezzo,
+                       COUNT(*) OVER() AS totale_risultati
                 FROM public.servizi
                 WHERE salone_id = $1
                   AND attivo = TRUE
-                ORDER BY nome;
-            `, [saloneId]);
+                  AND ($2 = '' OR nome ILIKE '%' || $2 || '%')
+                ORDER BY nome, id
+                LIMIT $3 OFFSET $4;
+            `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-            response.writeHead(200, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            response.end(JSON.stringify(risultato.rows));
+            rispondiPagina(response, risultato, paginazione);
         } catch (errore) {
             console.error("Errore nel caricamento dei servizi:", errore);
 
-            response.writeHead(500, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            response.end(JSON.stringify({
-                errore: "Errore interno del server."
-            }));
+            rispondiErrorePaginazione(response, errore, "Impossibile caricare i servizi.");
         }
     }   else if (
         request.method === "GET" &&
@@ -2039,7 +2168,7 @@ const server = http.createServer(async (request, response) => {//async cosi poss
                 `
                     SELECT
                         vendite.id,
-                        vendite.data_vendita,
+                        to_char(vendite.data_vendita, 'YYYY-MM-DD') AS data_vendita,
                         vendite.note,
                         COALESCE(
                             SUM(righe_vendita.quantita * righe_vendita.prezzo_unitario),
@@ -2106,31 +2235,30 @@ const server = http.createServer(async (request, response) => {//async cosi poss
         }
         } else if (
         request.method === "GET" &&
-        request.url === "/api/clienti"
+        percorso === "/api/clienti"
     ) {
         try {
+            const paginazione = leggiPaginazione(url);
             const risultato = await pool.query(`
-                SELECT id, nome, cognome, note, creata_il
+                SELECT id, nome, cognome, note, creata_il,
+                       COUNT(*) OVER() AS totale_risultati
                 FROM public.clienti
                 WHERE salone_id = $1
-                ORDER BY cognome, nome;
-            `, [saloneId]);
+                  AND (
+                      $2 = ''
+                      OR nome ILIKE '%' || $2 || '%'
+                      OR cognome ILIKE '%' || $2 || '%'
+                      OR COALESCE(note, '') ILIKE '%' || $2 || '%'
+                  )
+                ORDER BY cognome, nome, id
+                LIMIT $3 OFFSET $4;
+            `, [saloneId, paginazione.ricerca, paginazione.limite, paginazione.offset]);
 
-            response.writeHead(200, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            response.end(JSON.stringify(risultato.rows));
+            rispondiPagina(response, risultato, paginazione);
         } catch (errore) {
             console.error("Errore nel caricamento delle clienti:", errore);
 
-            response.writeHead(500, {
-                "Content-Type": "application/json; charset=utf-8"
-            });
-
-            response.end(JSON.stringify({
-                errore: "Errore interno del server"
-            }));
+            rispondiErrorePaginazione(response, errore, "Impossibile caricare le clienti.");
         }
         } else if (
         request.method === "POST" &&
@@ -2386,11 +2514,11 @@ const server = http.createServer(async (request, response) => {//async cosi poss
 
             const vendita = await client.query(
                 `
-                    INSERT INTO public.vendite (salone_id, cliente_id, note)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO public.vendite (salone_id, cliente_id, data_vendita, note)
+                    VALUES ($1, $2, $3::date, $4)
                     RETURNING id;
                 `,
-                [saloneId, dati.clienteId, dati.note]
+                [saloneId, dati.clienteId, dati.dataVendita, dati.note]
             );
 
             const venditaId = vendita.rows[0].id;
