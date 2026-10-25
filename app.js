@@ -8,6 +8,7 @@ let prodottoInModificaId = null;
 const paginaLogin = window.location.pathname === "/login";
 const paginaHome = ["/", "/index.html"].includes(window.location.pathname);
 let sessioneCorrente = null;
+let valoriPanoramicaNascosti = false;
 
 const percorsiSezioni = new Set([
     "/",
@@ -959,7 +960,7 @@ async function caricaRiepilogoPanoramica() {
         if (conteggioRiordino) {
             const prodottiDaRiordinare = Number(riepilogo.prodotti_da_riordinare);
 
-            conteggioRiordino.textContent = prodottiDaRiordinare;
+            impostaValorePanoramica(conteggioRiordino, prodottiDaRiordinare);
 
             if (schedaRiordino) {
                 schedaRiordino.classList.add("scheda-statistica-riordino");
@@ -967,15 +968,15 @@ async function caricaRiepilogoPanoramica() {
         }
 
         if (totaleVendite) {
-            totaleVendite.textContent = formattaEuro(riepilogo.vendite_mese);
+            impostaValorePanoramica(totaleVendite, formattaEuro(riepilogo.vendite_mese));
         }
 
         if (totaleAcquisti) {
-            totaleAcquisti.textContent = formattaEuro(riepilogo.acquisti_mese);
+            impostaValorePanoramica(totaleAcquisti, formattaEuro(riepilogo.acquisti_mese));
         }
 
         if (conteggioClienti) {
-            conteggioClienti.textContent = riepilogo.clienti_totali;
+            impostaValorePanoramica(conteggioClienti, riepilogo.clienti_totali);
         }
     } catch (errore) {
         console.error("Errore nel caricamento del riepilogo:", errore);
@@ -987,7 +988,7 @@ async function caricaRiepilogoPanoramica() {
             conteggioClienti
         ]) {
             if (elemento) {
-                elemento.textContent = "—";
+                impostaValorePanoramica(elemento, "—");
             }
         }
 
@@ -995,6 +996,74 @@ async function caricaRiepilogoPanoramica() {
             schedaRiordino.classList.add("scheda-statistica-riordino");
         }
     }
+}
+
+function impostaValorePanoramica(elemento, valore) {
+    if (!elemento) {
+        return;
+    }
+
+    elemento.dataset.valorePanoramica = String(valore);
+    elemento.textContent = valoriPanoramicaNascosti ? "****" : elemento.dataset.valorePanoramica;
+}
+
+function elementiValoriPanoramica() {
+    return [
+        document.querySelector("#conteggio-riordino"),
+        document.querySelector("#totale-vendite-mese"),
+        document.querySelector("#totale-acquisti-mese"),
+        document.querySelector("#conteggio-clienti")
+    ].filter(Boolean);
+}
+
+function aggiornaVisibilitaValoriPanoramica() {
+    for (const elemento of elementiValoriPanoramica()) {
+        if (elemento?.dataset.valorePanoramica !== undefined) {
+            elemento.textContent = valoriPanoramicaNascosti
+                ? "****"
+                : elemento.dataset.valorePanoramica;
+        }
+    }
+
+    const pulsante = document.querySelector("#toggle-valori-panoramica");
+
+    if (!pulsante) {
+        return;
+    }
+
+    const descrizione = valoriPanoramicaNascosti
+        ? "Mostra valori"
+        : "Nascondi valori";
+
+    pulsante.setAttribute("aria-label", descrizione);
+    pulsante.setAttribute("aria-pressed", String(valoriPanoramicaNascosti));
+    pulsante.title = descrizione;
+
+    const icone = pulsante.querySelectorAll(".icona-occhio");
+    icone.forEach((icona, indice) => {
+        const nascondiIcona = valoriPanoramicaNascosti ? indice === 0 : indice === 1;
+        icona.toggleAttribute("hidden", nascondiIcona);
+        icona.classList.toggle("icona-occhio-nascosta", nascondiIcona);
+    });
+}
+
+function inizializzaControlloValoriPanoramica() {
+    const pulsante = document.querySelector("#toggle-valori-panoramica");
+
+    if (!pulsante || pulsante.dataset.inizializzato === "true") {
+        return;
+    }
+
+    valoriPanoramicaNascosti = false;
+    pulsante.dataset.inizializzato = "true";
+    for (const elemento of elementiValoriPanoramica()) {
+        elemento.dataset.valorePanoramica = elemento.textContent;
+    }
+    pulsante.addEventListener("click", () => {
+        valoriPanoramicaNascosti = !valoriPanoramicaNascosti;
+        aggiornaVisibilitaValoriPanoramica();
+    });
+    aggiornaVisibilitaValoriPanoramica();
 }
 
 async function caricaMovimentiRecenti() {
@@ -3050,6 +3119,7 @@ function inizializzaFormLogin() {
 }
 
 async function inizializzaPaginaVisibile() {
+    inizializzaControlloValoriPanoramica();
     const aggiornamenti = raccogliAggiornamentiSezioniPrincipali();
 
     if (document.querySelector("#form-acquisto")) {

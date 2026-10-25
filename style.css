@@ -177,6 +177,44 @@ p {
     margin-bottom: 8px;
 }
 
+.pulsante-occhio-panoramica {
+    flex: 0 0 46px;
+    width: 46px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    border: 1px solid var(--bordo-forte);
+    border-radius: 10px;
+    background: var(--menta);
+    color: var(--verde-scuro);
+    cursor: pointer;
+    box-shadow: 2px 2px 0 var(--bordo-forte);
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.pulsante-occhio-panoramica:hover {
+    border-color: var(--verde-scuro);
+    background: var(--verde-chiaro);
+    transform: translateY(-1px);
+}
+
+.icona-occhio {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
+.icona-occhio[hidden],
+.icona-occhio-nascosta {
+    display: none !important;
+}
+
 .soprattitolo {
     display: flex;
     align-items: center;
@@ -1019,16 +1057,42 @@ select:disabled {
 
 .pagina-login {
     max-width: 560px;
-    margin-top: 7vh;
+    margin: 0 auto;
+    padding: clamp(26px, 5vw, 42px);
+    transform: translateY(-3vh);
 }
 
-.pagina-login .form-gestione {
-    max-width: 440px;
+.pagina-login-body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+}
+
+.login-brand {
+    justify-content: center;
+    margin-bottom: 28px;
+    padding: 0;
+}
+
+.login-header {
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 28px;
+}
+
+.login-header h1 {
+    margin-bottom: 0;
+    text-align: center;
 }
 
 .pagina-login .pulsante-salva {
     width: 100%;
     margin-top: 4px;
+}
+
+.pagina-login .messaggio-gestione:not(:empty) {
+    margin-bottom: 0;
 }
 
 @media (max-width: 900px) {
