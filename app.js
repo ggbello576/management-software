@@ -4,7 +4,6 @@ let serviziPerVendita = [];
 let righeVendita = [];
 let prodottiPerAcquisto = [];
 let righeAcquisto = [];
-let prodottoInModificaId = null;
 const paginaLogin = window.location.pathname === "/login";
 const paginaHome = ["/", "/index.html"].includes(window.location.pathname);
 let sessioneCorrente = null;
@@ -31,8 +30,268 @@ let popupCellaTabella = null;
 let elementoPrimaDelPopup = null;
 let popupAzioniTabella = null;
 let elementoPrimaDelPopupAzioni = null;
+let popupModificaTabella = null;
+let elementoPrimaDelPopupModifica = null;
 const LIMITE_LISTE = 10;
 const statiListe = new Map();
+
+const contenutiGuida = {
+    "/": {
+        titolo: "Panoramica",
+        tutorial: [
+            "Leggi i quattro riquadri in alto: mostrano prodotti da riordinare, vendite del mese, acquisti del mese e clienti registrati.",
+            "Se vuoi nascondere gli importi e i conteggi, premi l'icona dell'occhio; premila di nuovo per mostrarli.",
+            "Scorri fino a Ultimi movimenti per leggere le operazioni recenti: la panoramica serve per controllare la situazione, non per registrare dati."
+        ],
+        regole: [
+            "I riquadri sono riepiloghi: non cambiano le quantità e non sostituiscono le pagine Acquisti, Vendite o Rettifiche.",
+            "La tabella degli ultimi movimenti resta visibile anche quando i valori dei riquadri sono nascosti.",
+            "I dati appartengono al salone attivo della sessione."
+        ]
+    },
+    "/acquisti": {
+        titolo: "Acquisti",
+        tutorial: [
+            "Nella sezione Fornitore scegli un fornitore; se non vuoi associarlo, lascia il menu su Nessun fornitore selezionato.",
+            "Nella sezione Data e prodotti scegli la data e seleziona un prodotto già presente nel catalogo. Se non esiste ancora, vai prima in Prodotti, crealo e poi torna qui.",
+            "Inserisci quantità e costo unitario, poi premi Aggiungi alla lista.",
+            "Puoi aggiungere più prodotti ricevuti nello stesso giorno: appartengono tutti a questo acquisto. Se gli acquisti sono avvenuti in date diverse, salva questa registrazione e creane un'altra scegliendo l'altra data, anche se il fornitore è lo stesso. Le note sono facoltative.",
+            "Controlla le righe e il Totale acquisto nel Riepilogo, poi premi Salva acquisto. Dopo il salvataggio ogni acquisto compare nello storico con la propria data e il proprio totale, e la giacenza dei prodotti aumenta."
+        ],
+        regole: [
+            "La data è obbligatoria, il fornitore e le note sono facoltativi; quantità e costo unitario devono essere validi.",
+            "Il totale di ogni riga è quantità × costo unitario. Esempio: 3 prodotti a 4 € fanno 12 €; il totale dell'acquisto somma tutte le righe.",
+            "Un acquisto di 2 pezzi aumenta di 2 la giacenza di quel prodotto. L'acquisto riguarda prodotti, non servizi."
+        ],
+        azioni: [
+            "Prima del salvataggio, nel Riepilogo puoi aprire Azioni e scegliere Rimuovi per togliere una riga dalla lista dell'acquisto che stai preparando.",
+            "Nello storico degli acquisti apri il menu Azioni sulla riga desiderata.",
+            "Puoi cancellare una singola riga dell'acquisto oppure cancellare l'acquisto completo.",
+            "Cancellare una riga o l'acquisto aggiorna la giacenza dei prodotti coinvolti e ricarica lo storico. Se cancelli l'ultima riga, viene cancellato anche l'acquisto senza righe.",
+            "Prima della cancellazione compare una conferma con la data e il prodotto o l'acquisto interessato."
+        ]
+    },
+    "/vendite": {
+        titolo: "Vendite",
+        tutorial: [
+            "Nella sezione Cliente scegli una cliente abituale oppure lascia il menu su Nessuna cliente selezionata.",
+            "Nella sezione Aggiungi un elemento scegli Prodotto o Servizio, seleziona l'elemento, inserisci la quantità e premi Aggiungi alla vendita.",
+            "Scegli la data della vendita. Puoi aggiungere altre righe, scrivere una nota facoltativa e controllare tutto nel Riepilogo.",
+            "Quando le righe sono corrette, premi Salva vendita. La vendita compare nello storico; solo le righe di prodotto aggiornano la giacenza."
+        ],
+        regole: [
+            "La cliente e le note sono facoltative; servono una data e almeno una riga prima di salvare.",
+            "Il totale di una riga è prezzo dell'elemento × quantità. Esempio: un prodotto da 15 € venduto 2 volte vale 30 €.",
+            "Solo i prodotti diminuiscono la giacenza: se ce ne sono 2 e ne vendi 1, la giacenza diventa 1. Un servizio entra nel totale ma non cambia la giacenza."
+        ],
+        azioni: [
+            "Prima del salvataggio, nel Riepilogo puoi aprire Azioni e scegliere Rimuovi per togliere una riga dalla vendita che stai preparando.",
+            "Nello storico delle vendite apri il menu Azioni sulla riga desiderata.",
+            "Se la vendita ha più righe puoi cancellare una singola riga oppure cancellare la vendita completa. Se ha una sola riga, è disponibile solo la cancellazione della vendita.",
+            "Cancellare una vendita o una riga aggiorna lo storico e ricalcola la giacenza dei prodotti coinvolti. Le righe di servizio non cambiano la giacenza.",
+            "Prima della cancellazione compare una conferma con la data e il prodotto, servizio o vendita interessata."
+        ]
+    },
+    "/magazzino": {
+        titolo: "Magazzino",
+        tutorial: [
+            "Nel campo Cerca scrivi il nome o la marca di un prodotto; usa Precedente e Successiva per cambiare pagina.",
+            "Leggi Giacenza per sapere quanti pezzi risultano disponibili e Soglia di riordino per capire quando rifornire il prodotto.",
+            "Controlla Stato: Da riordinare significa che la giacenza è uguale o inferiore alla soglia. Per cambiare una quantità usa Rettifiche magazzino.",
+            "Leggi Valore stimato del magazzino per una stima basata sulla quantità e sul costo storico di acquisto."
+        ],
+        regole: [
+            "La giacenza parte dal conteggio iniziale, aumenta con gli acquisti, diminuisce con le vendite di prodotti e cambia con le rettifiche.",
+            "La soglia non cambia la quantità: serve solo per mostrare lo stato Da riordinare quando la giacenza è uguale o inferiore a quella soglia.",
+            "La stima usa giacenza × costo unitario dell'acquisto reale più recente; se manca, usa il costo indicativo. Non usa il prezzo di vendita."
+        ]
+    },
+    "/rettifiche-magazzino": {
+        titolo: "Rettifiche",
+        tutorial: [
+            "Nel campo Prodotto seleziona il prodotto la cui quantità non è corretta.",
+            "In Variazione quantità scrivi un numero positivo per aggiungere pezzi o negativo per toglierli; non usare zero.",
+            "Scrivi il Motivo, per esempio prodotto rotto o prodotto mancante, poi premi Registra rettifica.",
+            "Dopo il salvataggio controlla la riga nello Storico rettifiche e la nuova quantità nella pagina Magazzino."
+        ],
+        regole: [
+            "Una rettifica positiva aumenta la giacenza: da 5 con variazione +2 si passa a 7.",
+            "Una rettifica negativa la riduce: da 5 con variazione -1 si passa a 4. Il motivo è obbligatorio e la variazione non può essere zero.",
+            "La rettifica corregge una quantità già registrata; non crea un acquisto e non registra una vendita."
+        ],
+        azioni: [
+            "Nello Storico rettifiche apri il menu Azioni sulla riga desiderata.",
+            "L'unica operazione disponibile è cancellare la rettifica del prodotto indicato.",
+            "La cancellazione rimuove quella correzione, ricalcola la giacenza del prodotto e aggiorna lo storico.",
+            "Prima della cancellazione compare una conferma con il prodotto e la variazione interessati."
+        ]
+    },
+    "/conteggio-iniziale": {
+        titolo: "Conteggio",
+        tutorial: [
+            "Apri Conteggio iniziale quando cominci a usare il gestionale e premi Aggiungi prodotto per creare una riga.",
+            "Per ogni prodotto compila Nome, Prezzo di vendita, Soglia di riordino, Quantità contata fisicamente e Costo unitario d'acquisto indicativo; Marca è facoltativa.",
+            "Aggiungi una riga per ogni prodotto già presente, poi premi Salva conteggio iniziale. Il conteggio crea anche la scheda del prodotto e registra la quantità iniziale in Magazzino: non devi inserirlo di nuovo in Prodotti o in Acquisti."
+        ],
+        regole: [
+            "Nome, prezzo di vendita, soglia, quantità contata e costo indicativo sono obbligatori; la marca è facoltativa.",
+            "Il conteggio comunica al gestionale cosa c'è già nel salone quando inizi a usarlo: non è un acquisto e non registra una vendita.",
+            "Il costo indicativo serve come riferimento per la stima del magazzino quando non esiste ancora un costo di acquisto reale."
+        ],
+        azioni: [
+            "Nel riepilogo delle righe inserite apri il menu Azioni sulla riga che vuoi togliere.",
+            "Scegli Rimuovi per eliminare quella riga dalla compilazione corrente del conteggio.",
+            "Rimuovi non cancella prodotti già salvati e non cambia il Magazzino: prima del salvataggio modifica solo l'elenco che stai preparando."
+        ]
+    },
+    "/clienti": {
+        titolo: "Clienti",
+        tutorial: [
+            "Nel modulo in alto inserisci Nome e Cognome; se serve, scrivi una Nota.",
+            "Premi Salva cliente. Il nuovo nominativo compare nell'elenco sottostante.",
+            "Per trovare una cliente usa Cerca. Su una riga premi Modifica, scegli Modifica cliente, aggiorna i campi e premi Salva modifiche."
+        ],
+        regole: [
+            "Nome e cognome sono obbligatori; la nota è facoltativa.",
+            "La cliente può essere scelta in una vendita, ma una vendita può anche restare senza cliente.",
+            "Cancellare una cliente richiede una conferma. Il dettaglio cliente mostra anche lo storico delle vendite associate."
+        ],
+        modifica: [
+            "Nella riga della cliente desiderata apri il menu delle azioni e scegli Modifica cliente.",
+            "Si apre una finestra con nome, cognome e note già compilati. Questi sono i campi presenti nella scheda cliente.",
+            "Cambia solo i campi necessari e premi Salva modifiche. Annulla chiude la finestra senza salvare i cambiamenti.",
+            "Dopo il salvataggio l'elenco mostra i dati aggiornati: la modifica aggiorna la scheda esistente e non crea una nuova cliente.",
+            "Cancella è un'azione separata e non serve per correggere un dato."
+        ]
+    },
+    "/prodotti": {
+        titolo: "Prodotti",
+        tutorial: [
+            "Nel modulo in alto inserisci Nome, Prezzo di vendita e Soglia di riordino; puoi aggiungere Marca e costo indicativo.",
+            "Premi Salva prodotto per creare la scheda nel catalogo. Questa operazione da sola non aumenta la giacenza: per un prodotto già presente all'avvio usa Conteggio iniziale; per un prodotto arrivato dopo usa Acquisti.",
+            "Per aggiornare un prodotto premi Modifica nella sua riga, scegli Modifica prodotto, cambia i campi e premi Salva modifiche."
+        ],
+        regole: [
+            "Nome, prezzo di vendita e soglia di riordino sono obbligatori; marca e costo indicativo sono facoltativi.",
+            "Il costo indicativo non cambia il prezzo di vendita e viene usato per stimare il magazzino solo quando manca un costo di acquisto reale.",
+            "La giacenza non si modifica qui: usa Conteggio iniziale all'avvio o Rettifiche magazzino per le correzioni successive."
+        ],
+        modifica: [
+            "Nella riga del prodotto desiderato apri il menu delle azioni e scegli Modifica prodotto.",
+            "Si apre una finestra con i dati attuali già compilati. Puoi cambiare nome, marca, prezzo di vendita, costo indicativo e soglia di riordino.",
+            "Cambia solo i campi necessari e premi Salva modifiche. Annulla chiude la finestra senza salvare i cambiamenti.",
+            "Dopo il salvataggio l'elenco mostra i dati aggiornati: la modifica aggiorna la scheda esistente e non crea un nuovo prodotto.",
+            "La quantità disponibile non si modifica qui. Per correggerla usa Rettifiche magazzino. Cancella è un'azione separata e non serve per correggere un dato."
+        ]
+    },
+    "/servizi": {
+        titolo: "Servizi",
+        tutorial: [
+            "Nel modulo in alto inserisci il Nome del servizio e il Prezzo.",
+            "Premi Salva servizio: il servizio diventa disponibile nel menu delle vendite.",
+            "Per aggiornarlo premi Modifica nella riga, scegli Modifica servizio, cambia i campi e premi Salva modifiche."
+        ],
+        regole: [
+            "Nome e prezzo sono obbligatori; il prezzo non può essere negativo.",
+            "Il prezzo del servizio entra nel totale della vendita moltiplicato per la quantità.",
+            "I servizi non hanno giacenza: anche se venduti, non cambiano il Magazzino."
+        ],
+        modifica: [
+            "Nella riga del servizio desiderato apri il menu delle azioni e scegli Modifica servizio.",
+            "Si apre una finestra con i dati attuali già compilati. Puoi cambiare il nome e il prezzo.",
+            "Lo stato attivo è mostrato nell'elenco dei servizi; questa finestra modifica solo nome e prezzo, come previsto dalla sezione.",
+            "Cambia solo i campi necessari e premi Salva modifiche. Annulla chiude la finestra senza salvare i cambiamenti.",
+            "Dopo il salvataggio l'elenco mostra i dati aggiornati: la modifica aggiorna la scheda esistente e non crea un nuovo servizio. Cancella è un'azione separata e non serve per correggere un dato."
+        ]
+    },
+    "/fornitori": {
+        titolo: "Fornitori",
+        tutorial: [
+            "Nel modulo in alto inserisci il Nome del fornitore; Telefono, Email e Note possono essere lasciati vuoti.",
+            "Premi Salva fornitore. Il fornitore compare nell'elenco e potrà essere scelto durante un acquisto.",
+            "Per aggiornarlo premi Modifica nella riga, scegli Modifica fornitore, cambia i campi e premi Salva modifiche."
+        ],
+        regole: [
+            "Il nome è obbligatorio; telefono, email e note sono facoltativi.",
+            "Un fornitore può essere scelto negli acquisti, ma un acquisto può restare senza fornitore.",
+            "Il fornitore non cambia direttamente la giacenza: è il salvataggio dell'acquisto con le sue righe di prodotto a incrementarla."
+        ],
+        modifica: [
+            "Nella riga del fornitore desiderato apri il menu delle azioni e scegli Modifica fornitore.",
+            "Si apre una finestra con nome, telefono, email e note già compilati.",
+            "Cambia solo i campi necessari e premi Salva modifiche. Annulla chiude la finestra senza salvare i cambiamenti.",
+            "Dopo il salvataggio l'elenco mostra i dati aggiornati: la modifica aggiorna la scheda esistente e non crea un nuovo fornitore.",
+            "Cancella è un'azione separata e non serve per correggere un dato."
+        ]
+    }
+};
+
+const guidaPrimaVolta = {
+    sezioni: [
+        {
+            titolo: "Prima di iniziare",
+            elenco: [
+                "Vai in Conteggio iniziale e inserisci i prodotti che sono già presenti in salone, indicando quanti ce ne sono. Così il gestionale crea le schede e registra le quantità di partenza.",
+                "Vai in Servizi e inserisci i servizi che offri, con i relativi prezzi.",
+                "Da quel momento puoi registrare le operazioni del salone."
+            ],
+            ordinato: true
+        },
+        {
+            titolo: "A cosa serve ogni sezione",
+            elenco: [
+                "Panoramica: mostra le informazioni principali del salone e gli ultimi movimenti.",
+                "Magazzino: mostra i prodotti disponibili e quelli da riordinare.",
+                "Conteggio iniziale: serve per caricare i prodotti e le quantità che hai già quando inizi a usare il gestionale.",
+                "Prodotti: serve per creare o modificare le schede dei prodotti. Se in futuro vuoi acquistare un prodotto non ancora presente, crealo qui e poi registra l'arrivo in Acquisti.",
+                "Servizi: serve per inserire o modificare i servizi e i loro prezzi. I servizi non modificano le quantità in magazzino.",
+                "Acquisti: registra i prodotti ricevuti e aumenta le quantità in magazzino.",
+                "Vendite: registra i prodotti venduti e i servizi svolti. La vendita di un prodotto diminuisce la quantità disponibile.",
+                "Rettifiche magazzino: corregge le quantità per prodotti rotti, danneggiati o mancanti.",
+                "Clienti: conserva i dati delle clienti abituali e permette di consultare i loro acquisti.",
+                "Fornitori: conserva i dati dei fornitori."
+            ]
+        }
+    ],
+    nota: "Il conteggio iniziale riguarda ciò che è già presente in salone. Non registrare questi prodotti anche come acquisti."
+};
+
+const percorsiConGuidaModifica = new Set([
+    "/prodotti",
+    "/servizi",
+    "/clienti",
+    "/fornitori"
+]);
+
+const percorsiConGuidaAzioni = new Set([
+    "/acquisti",
+    "/vendite",
+    "/rettifiche-magazzino",
+    "/conteggio-iniziale"
+]);
+
+function guidaPerPercorso(percorso) {
+    if (/^\/clienti\/\d+$/.test(percorso)) {
+        return {
+            ...contenutiGuida["/clienti"],
+            titolo: "Dettaglio cliente"
+        };
+    }
+
+    return contenutiGuida[percorso] || {
+        titolo: "Gestionale",
+        tutorial: [
+            "Consulta le informazioni della sezione aperta.",
+            "Usa i moduli e le tabelle disponibili per svolgere l'operazione necessaria.",
+            "Controlla il messaggio di conferma o di errore dopo ogni operazione."
+        ],
+        regole: [
+            "I dati mostrati appartengono al salone della sessione autenticata.",
+            "I campi obbligatori sono indicati nel modulo della sezione.",
+            "Le operazioni vengono controllate dal gestionale prima del salvataggio."
+        ]
+    };
+}
 
 function normalizzaRispostaLista(risultato) {
     if (Array.isArray(risultato)) {
@@ -818,7 +1077,7 @@ async function caricaRettificheMagazzino() {
                 riga.appendChild(cella);
             }
 
-            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione(`Cancella rettifica di «${rettifica.prodotto}»`, async () => {
                 await cancellaRisorsa(
                     `/api/rettifiche-magazzino/${rettifica.id}`,
                     `Vuoi cancellare definitivamente la rettifica di ${rettifica.quantita_variazione} unità per "${rettifica.prodotto}"? La giacenza verrà ricalcolata.`,
@@ -831,7 +1090,8 @@ async function caricaRettificheMagazzino() {
             });
             riga.appendChild(creaCellaAzioniPopup(
                 `rettifica di ${rettifica.prodotto}`,
-                [pulsanteCancella]
+                [pulsanteCancella],
+                "Azioni"
             ));
             corpo.appendChild(riga);
         }
@@ -903,17 +1163,20 @@ async function caricaClienti() {
                 riga.appendChild(cella);
             }
 
-            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione(`Cancella cliente «${cliente.nome} ${cliente.cognome}»`, async () => {
                 await cancellaRisorsa(
                     `/api/clienti/${cliente.id}`,
-                    `Vuoi cancellare definitivamente la cliente "${cliente.nome} ${cliente.cognome}"?`,
+                    `Vuoi cancellare definitivamente la cliente "${cliente.nome} ${cliente.cognome}"? Verrà rimossa dall'elenco; se è collegata a vendite esistenti, la cancellazione non sarà consentita.`,
                     document.querySelector("#messaggio-cancellazione-cliente"),
                     caricaClienti
                 );
             });
+            const pulsanteModifica = creaPulsanteAzioneTabella("Modifica cliente", () => {
+                apriPopupModificaCliente(cliente);
+            });
             riga.appendChild(creaCellaAzioniPopup(
                 `cliente ${cliente.nome} ${cliente.cognome}`,
-                [pulsanteCancella]
+                [pulsanteModifica, pulsanteCancella]
             ));
 
             corpoTabella.appendChild(riga);
@@ -1215,15 +1478,17 @@ async function gestisciFormCliente(evento) {
         cognome: form.elements.cognome.value.trim(),
         note: form.elements.note.value.trim()
     };
-
     try {
-        const risposta = await fetchDati("/api/clienti", {
+        const risposta = await fetchDati(
+            "/api/clienti",
+            {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify(nuovaCliente)
-        });
+            }
+        );
 
         const risultato = await risposta.json().catch(() => ({}));
 
@@ -1244,7 +1509,9 @@ async function gestisciFormCliente(evento) {
         console.error("Errore nel salvataggio della cliente:", errore);
 
         if (messaggio) {
-            messaggio.textContent = "Impossibile salvare la cliente.";
+            messaggio.textContent = errore.message === "Failed to fetch"
+                ? "Impossibile contattare il server."
+                : errore.message;
         }
     }
 }
@@ -1388,14 +1655,14 @@ function apriPopupAzioni(titoloContesto, contenitore, pulsanteApertura) {
     chiudi.focus();
 }
 
-function creaCellaAzioniPopup(titoloContesto, pulsanti) {
+function creaCellaAzioniPopup(titoloContesto, pulsanti, etichetta = "Modifica") {
     const cella = document.createElement("td");
     const modifica = document.createElement("button");
     const contenitore = document.createElement("div");
 
     modifica.type = "button";
     modifica.className = "pulsante-tabella pulsante-modifica";
-    modifica.textContent = "Modifica";
+    modifica.textContent = etichetta;
     modifica.setAttribute("aria-haspopup", "dialog");
     modifica.setAttribute("aria-label", `Apri le azioni: ${titoloContesto}`);
 
@@ -1409,6 +1676,386 @@ function creaCellaAzioniPopup(titoloContesto, pulsanti) {
 
     cella.append(modifica, contenitore);
     return cella;
+}
+
+function chiudiPopupModifica() {
+    if (!popupModificaTabella) {
+        return;
+    }
+
+    popupModificaTabella.popup.remove();
+    popupModificaTabella = null;
+    document.body.classList.remove("popup-azioni-aperta");
+
+    if (
+        elementoPrimaDelPopupModifica instanceof HTMLElement &&
+        document.contains(elementoPrimaDelPopupModifica)
+    ) {
+        elementoPrimaDelPopupModifica.focus();
+    }
+
+    elementoPrimaDelPopupModifica = null;
+}
+
+function creaCampoPopupModifica(configurazione) {
+    const campo = document.createElement("div");
+    const etichetta = document.createElement("label");
+    const input = configurazione.tipo === "textarea"
+        ? document.createElement("textarea")
+        : document.createElement("input");
+
+    campo.className = `campo-gestione${configurazione.largo ? " campo-gestione-largo" : ""}`;
+    etichetta.htmlFor = configurazione.id;
+    etichetta.textContent = configurazione.etichetta;
+    input.id = configurazione.id;
+    input.name = configurazione.nome;
+    input.value = configurazione.valore ?? "";
+
+    if (configurazione.tipo && configurazione.tipo !== "textarea") {
+        input.type = configurazione.tipo;
+    }
+
+    if (configurazione.rows) {
+        input.rows = configurazione.rows;
+    }
+
+    for (const attributo of ["min", "max", "step", "placeholder"]) {
+        if (configurazione[attributo] !== undefined) {
+            input.setAttribute(attributo, configurazione[attributo]);
+        }
+    }
+
+    if (configurazione.required) {
+        input.required = true;
+    }
+
+    campo.append(etichetta, input);
+    return campo;
+}
+
+function apriPopupModifica(configurazione) {
+    const elementoRitorno = elementoPrimaDelPopupAzioni;
+
+    chiudiPopupAzioni();
+    chiudiPopupModifica();
+
+    const popup = document.createElement("div");
+    const pannello = document.createElement("section");
+    const intestazione = document.createElement("div");
+    const titolo = document.createElement("h2");
+    const chiudi = document.createElement("button");
+    const form = document.createElement("form");
+    const campi = document.createElement("div");
+    const messaggio = document.createElement("p");
+    const azioni = document.createElement("div");
+    const salva = document.createElement("button");
+
+    popup.className = "popup-azioni-tabella popup-modifica-tabella";
+    popup.setAttribute("role", "dialog");
+    popup.setAttribute("aria-modal", "true");
+    popup.setAttribute("aria-labelledby", "titolo-popup-modifica-tabella");
+
+    pannello.className = "popup-azioni-tabella-pannello";
+    intestazione.className = "popup-azioni-tabella-intestazione";
+    titolo.id = "titolo-popup-modifica-tabella";
+    titolo.textContent = configurazione.titolo;
+
+    chiudi.type = "button";
+    chiudi.className = "popup-azioni-tabella-chiudi";
+    chiudi.textContent = "Annulla";
+    chiudi.setAttribute("aria-label", "Annulla modifica");
+
+    form.className = "popup-modifica-form";
+    campi.className = "campi-gestione";
+    configurazione.campi.forEach((campo) => {
+        campi.appendChild(creaCampoPopupModifica(campo));
+    });
+
+    messaggio.className = "messaggio-gestione popup-modifica-messaggio";
+    messaggio.setAttribute("aria-live", "polite");
+
+    azioni.className = "popup-modifica-azioni";
+    salva.type = "submit";
+    salva.className = "pulsante-salva";
+    salva.textContent = "Salva modifiche";
+    azioni.appendChild(salva);
+
+    form.append(campi, messaggio, azioni);
+    intestazione.append(titolo, chiudi);
+    pannello.append(intestazione, form);
+    popup.appendChild(pannello);
+    document.body.appendChild(popup);
+
+    popupModificaTabella = { popup };
+    elementoPrimaDelPopupModifica = elementoRitorno;
+    document.body.classList.add("popup-azioni-aperta");
+
+    const elementiFocalizzabili = () => [
+        chiudi,
+        ...form.querySelectorAll("input, textarea, select, button:not(:disabled)")
+    ];
+
+    chiudi.addEventListener("click", chiudiPopupModifica);
+    popup.addEventListener("click", (evento) => {
+        if (evento.target === popup) {
+            chiudiPopupModifica();
+        }
+    });
+    popup.addEventListener("keydown", (evento) => {
+        if (evento.key === "Escape") {
+            evento.preventDefault();
+            chiudiPopupModifica();
+            return;
+        }
+
+        if (evento.key !== "Tab") {
+            return;
+        }
+
+        const elementi = elementiFocalizzabili();
+        const primo = elementi[0];
+        const ultimo = elementi[elementi.length - 1];
+
+        if (evento.shiftKey && document.activeElement === primo) {
+            evento.preventDefault();
+            ultimo.focus();
+        } else if (!evento.shiftKey && document.activeElement === ultimo) {
+            evento.preventDefault();
+            primo.focus();
+        }
+    });
+    form.addEventListener("submit", async (evento) => {
+        evento.preventDefault();
+
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+
+        salva.disabled = true;
+        messaggio.textContent = "";
+
+        try {
+            const risposta = await fetchDati(configurazione.url, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(configurazione.creaPayload(form))
+            });
+            const risultato = await risposta.json().catch(() => ({}));
+
+            if (!risposta.ok) {
+                throw new Error(
+                    risultato.errore || `Richiesta fallita: HTTP ${risposta.status}`
+                );
+            }
+
+            chiudiPopupModifica();
+            const messaggioPagina = document.querySelector(configurazione.messaggioSelettore);
+            if (messaggioPagina) {
+                messaggioPagina.textContent = configurazione.messaggioSuccesso;
+            }
+            await configurazione.aggiorna();
+        } catch (errore) {
+            console.error("Errore nel salvataggio della modifica:", errore);
+            messaggio.textContent = errore.message === "Failed to fetch"
+                ? "Impossibile contattare il server."
+                : errore.message;
+            salva.disabled = false;
+        }
+    });
+
+    const primoCampo = form.querySelector("input, textarea, select");
+    (primoCampo || chiudi).focus();
+}
+
+function apriPopupModificaProdotto(prodotto) {
+    apriPopupModifica({
+        titolo: "Modifica prodotto",
+        url: `/api/prodotti/${prodotto.id}`,
+        messaggioSelettore: "#messaggio-prodotto",
+        messaggioSuccesso: "Prodotto aggiornato.",
+        aggiorna: caricaGestioneProdotti,
+        campi: [
+            {
+                id: "popup-modifica-prodotto-nome",
+                nome: "nome",
+                etichetta: "Nome",
+                valore: prodotto.nome,
+                required: true,
+                largo: true
+            },
+            {
+                id: "popup-modifica-prodotto-marca",
+                nome: "marca",
+                etichetta: "Marca",
+                valore: prodotto.marca,
+                largo: true
+            },
+            {
+                id: "popup-modifica-prodotto-prezzo-vendita",
+                nome: "prezzoVendita",
+                etichetta: "Prezzo di vendita",
+                tipo: "number",
+                valore: prodotto.prezzo_vendita,
+                min: "0",
+                step: "0.01",
+                required: true
+            },
+            {
+                id: "popup-modifica-prodotto-costo",
+                nome: "costoUnitarioIndicativo",
+                etichetta: "Costo unitario d'acquisto indicativo",
+                tipo: "number",
+                valore: prodotto.costo_unitario_indicativo,
+                min: "0",
+                step: "0.01",
+                placeholder: "Facoltativo"
+            },
+            {
+                id: "popup-modifica-prodotto-soglia",
+                nome: "sogliaRiordino",
+                etichetta: "Soglia di riordino",
+                tipo: "number",
+                valore: prodotto.soglia_riordino,
+                min: "0",
+                step: "1",
+                required: true
+            }
+        ],
+        creaPayload: (form) => ({
+            nome: form.elements.nome.value.trim(),
+            marca: form.elements.marca.value.trim() || null,
+            prezzoVendita: Number(form.elements.prezzoVendita.value),
+            costoUnitarioIndicativo: form.elements.costoUnitarioIndicativo.value === ""
+                ? null
+                : Number(form.elements.costoUnitarioIndicativo.value),
+            sogliaRiordino: Number(form.elements.sogliaRiordino.value)
+        })
+    });
+}
+
+function apriPopupModificaServizio(servizio) {
+    apriPopupModifica({
+        titolo: "Modifica servizio",
+        url: `/api/servizi/${servizio.id}`,
+        messaggioSelettore: "#messaggio-servizio",
+        messaggioSuccesso: "Servizio aggiornato.",
+        aggiorna: caricaGestioneServizi,
+        campi: [
+            {
+                id: "popup-modifica-servizio-nome",
+                nome: "nome",
+                etichetta: "Nome",
+                valore: servizio.nome,
+                required: true,
+                largo: true
+            },
+            {
+                id: "popup-modifica-servizio-prezzo",
+                nome: "prezzo",
+                etichetta: "Prezzo",
+                tipo: "number",
+                valore: servizio.prezzo,
+                min: "0",
+                step: "0.01",
+                required: true
+            }
+        ],
+        creaPayload: (form) => ({
+            nome: form.elements.nome.value.trim(),
+            prezzo: Number(form.elements.prezzo.value)
+        })
+    });
+}
+
+function apriPopupModificaCliente(cliente) {
+    apriPopupModifica({
+        titolo: "Modifica cliente",
+        url: `/api/clienti/${cliente.id}`,
+        messaggioSelettore: "#messaggio-cliente",
+        messaggioSuccesso: "Cliente aggiornata.",
+        aggiorna: caricaClienti,
+        campi: [
+            {
+                id: "popup-modifica-cliente-nome",
+                nome: "nome",
+                etichetta: "Nome",
+                valore: cliente.nome,
+                required: true
+            },
+            {
+                id: "popup-modifica-cliente-cognome",
+                nome: "cognome",
+                etichetta: "Cognome",
+                valore: cliente.cognome,
+                required: true
+            },
+            {
+                id: "popup-modifica-cliente-note",
+                nome: "note",
+                etichetta: "Note",
+                tipo: "textarea",
+                rows: 3,
+                valore: cliente.note,
+                largo: true
+            }
+        ],
+        creaPayload: (form) => ({
+            nome: form.elements.nome.value.trim(),
+            cognome: form.elements.cognome.value.trim(),
+            note: form.elements.note.value.trim()
+        })
+    });
+}
+
+function apriPopupModificaFornitore(fornitore) {
+    apriPopupModifica({
+        titolo: "Modifica fornitore",
+        url: `/api/fornitori/${fornitore.id}`,
+        messaggioSelettore: "#messaggio-fornitore",
+        messaggioSuccesso: "Fornitore aggiornato.",
+        aggiorna: caricaGestioneFornitori,
+        campi: [
+            {
+                id: "popup-modifica-fornitore-nome",
+                nome: "nome",
+                etichetta: "Nome",
+                valore: fornitore.nome,
+                required: true,
+                largo: true
+            },
+            {
+                id: "popup-modifica-fornitore-telefono",
+                nome: "telefono",
+                etichetta: "Telefono",
+                valore: fornitore.telefono
+            },
+            {
+                id: "popup-modifica-fornitore-email",
+                nome: "email",
+                etichetta: "Email",
+                tipo: "email",
+                valore: fornitore.email
+            },
+            {
+                id: "popup-modifica-fornitore-note",
+                nome: "note",
+                etichetta: "Note",
+                tipo: "textarea",
+                rows: 3,
+                valore: fornitore.note,
+                largo: true
+            }
+        ],
+        creaPayload: (form) => ({
+            nome: form.elements.nome.value.trim(),
+            telefono: form.elements.telefono.value.trim() || null,
+            email: form.elements.email.value.trim() || null,
+            note: form.elements.note.value.trim() || null
+        })
+    });
 }
 
 async function cancellaRisorsa(url, testoConferma, messaggio, aggiorna) {
@@ -1502,17 +2149,16 @@ async function caricaGestioneProdotti() {
                 riga.appendChild(cella);
             }
 
-            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione(`Cancella prodotto «${prodotto.nome}»`, async () => {
                 await cancellaRisorsa(
                     `/api/prodotti/${prodotto.id}`,
-                    `Vuoi cancellare definitivamente il prodotto "${prodotto.nome}"? Puoi farlo solo se non è collegato a movimenti.`,
+                    `Vuoi cancellare definitivamente il prodotto "${prodotto.nome}"? Verrà rimosso dall'elenco, ma puoi farlo solo se non è collegato ad acquisti, vendite o rettifiche.`,
                     messaggio,
                     caricaGestioneProdotti
                 );
             });
             const pulsanteModifica = creaPulsanteAzioneTabella("Modifica prodotto", () => {
-                chiudiPopupAzioni();
-                preparaModificaProdotto(prodotto);
+                apriPopupModificaProdotto(prodotto);
             });
             riga.appendChild(creaCellaAzioniPopup(
                 `prodotto ${prodotto.nome}`,
@@ -1532,57 +2178,6 @@ async function caricaGestioneProdotti() {
         if (messaggio) {
             messaggio.textContent = errore.message;
         }
-    }
-}
-
-function preparaModificaProdotto(prodotto) {
-    const form = document.querySelector("#form-prodotto");
-
-    if (!form) {
-        return;
-    }
-
-    prodottoInModificaId = prodotto.id;
-    form.elements.nome.value = prodotto.nome || "";
-    form.elements.marca.value = prodotto.marca || "";
-    form.elements.prezzoVendita.value = prodotto.prezzo_vendita ?? "";
-    form.elements.costoUnitarioIndicativo.value = prodotto.costo_unitario_indicativo ?? "";
-    form.elements.sogliaRiordino.value = prodotto.soglia_riordino ?? "0";
-
-    const pulsanteSalva = form.querySelector('button[type="submit"]');
-    const pulsanteAnnulla = document.querySelector("#annulla-modifica-prodotto");
-
-    if (pulsanteSalva) {
-        pulsanteSalva.textContent = "Salva modifiche";
-    }
-
-    if (pulsanteAnnulla) {
-        pulsanteAnnulla.hidden = false;
-    }
-
-    form.scrollIntoView({ behavior: "smooth", block: "start" });
-    form.elements.costoUnitarioIndicativo.focus();
-}
-
-function annullaModificaProdotto() {
-    const form = document.querySelector("#form-prodotto");
-
-    if (!form) {
-        return;
-    }
-
-    prodottoInModificaId = null;
-    form.reset();
-
-    const pulsanteSalva = form.querySelector('button[type="submit"]');
-    const pulsanteAnnulla = document.querySelector("#annulla-modifica-prodotto");
-
-    if (pulsanteSalva) {
-        pulsanteSalva.textContent = "Salva prodotto";
-    }
-
-    if (pulsanteAnnulla) {
-        pulsanteAnnulla.hidden = true;
     }
 }
 
@@ -1606,14 +2201,11 @@ async function gestisciFormProdotto(evento) {
         sogliaRiordino: Number(form.elements.sogliaRiordino.value)
     };
 
-    const prodottoId = prodottoInModificaId;
-    const modifica = prodottoId !== null;
-
     try {
         const risposta = await fetchDati(
-            modifica ? `/api/prodotti/${prodottoId}` : "/api/prodotti",
+            "/api/prodotti",
             {
-            method: modifica ? "PATCH" : "POST",
+            method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
@@ -1629,8 +2221,8 @@ async function gestisciFormProdotto(evento) {
             );
         }
 
-        annullaModificaProdotto();
-        messaggio.textContent = modifica ? "Prodotto aggiornato." : "Prodotto salvato.";
+        form.reset();
+        messaggio.textContent = "Prodotto salvato.";
         await caricaGestioneProdotti();
     } catch (errore) {
         console.error("Errore nel salvataggio del prodotto:", errore);
@@ -1743,17 +2335,20 @@ async function caricaGestioneServizi() {
                 riga.appendChild(cella);
             }
 
-            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione(`Cancella servizio «${servizio.nome}»`, async () => {
                 await cancellaRisorsa(
                     `/api/servizi/${servizio.id}`,
-                    `Vuoi cancellare definitivamente il servizio "${servizio.nome}"? Puoi farlo solo se non è collegato a vendite.`,
+                    `Vuoi cancellare definitivamente il servizio "${servizio.nome}"? Verrà rimosso dall'elenco, ma puoi farlo solo se non è collegato a vendite.`,
                     messaggio,
                     caricaGestioneServizi
                 );
             });
+            const pulsanteModifica = creaPulsanteAzioneTabella("Modifica servizio", () => {
+                apriPopupModificaServizio(servizio);
+            });
             riga.appendChild(creaCellaAzioniPopup(
                 `servizio ${servizio.nome}`,
-                [pulsanteCancella]
+                [pulsanteModifica, pulsanteCancella]
             ));
 
             corpo.appendChild(riga);
@@ -1781,15 +2376,17 @@ async function gestisciFormServizio(evento) {
         nome: form.elements.nome.value.trim(),
         prezzo: Number(form.elements.prezzo.value)
     };
-
     try {
-        const risposta = await fetchDati("/api/servizi-gestione", {
+        const risposta = await fetchDati(
+            "/api/servizi-gestione",
+            {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify(nuovoServizio)
-        });
+            }
+        );
 
         const risultato = await risposta.json().catch(() => ({}));
 
@@ -1861,17 +2458,20 @@ async function caricaGestioneFornitori() {
                 riga.appendChild(cella);
             }
 
-            const pulsanteCancella = creaPulsanteCancellazione("Cancella", async () => {
+            const pulsanteCancella = creaPulsanteCancellazione(`Cancella fornitore «${fornitore.nome}»`, async () => {
                 await cancellaRisorsa(
                     `/api/fornitori/${fornitore.id}`,
-                    `Vuoi cancellare definitivamente il fornitore "${fornitore.nome}"? Puoi farlo solo se non è collegato ad acquisti.`,
+                    `Vuoi cancellare definitivamente il fornitore "${fornitore.nome}"? Verrà rimosso dall'elenco, ma puoi farlo solo se non è collegato ad acquisti.`,
                     messaggio,
                     caricaGestioneFornitori
                 );
             });
+            const pulsanteModifica = creaPulsanteAzioneTabella("Modifica fornitore", () => {
+                apriPopupModificaFornitore(fornitore);
+            });
             riga.appendChild(creaCellaAzioniPopup(
                 `fornitore ${fornitore.nome}`,
-                [pulsanteCancella]
+                [pulsanteModifica, pulsanteCancella]
             ));
 
             corpo.appendChild(riga);
@@ -1901,15 +2501,17 @@ async function gestisciFormFornitore(evento) {
         email: form.elements.email.value.trim() || null,
         note: form.elements.note.value.trim() || null
     };
-
     try {
-        const risposta = await fetchDati("/api/fornitori", {
+        const risposta = await fetchDati(
+            "/api/fornitori",
+            {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify(nuovoFornitore)
-        });
+            }
+        );
 
         const risultato = await risposta.json().catch(() => ({}));
 
@@ -1924,7 +2526,9 @@ async function gestisciFormFornitore(evento) {
         await caricaGestioneFornitori();
     } catch (errore) {
         console.error("Errore nel salvataggio del fornitore:", errore);
-        messaggio.textContent = errore.message;
+        messaggio.textContent = errore.message === "Failed to fetch"
+            ? "Impossibile contattare il server."
+            : errore.message;
     }
 }
 
@@ -2026,7 +2630,8 @@ function mostraRigheAcquisto() {
 
         riga.appendChild(creaCellaAzioniPopup(
             `riga acquisto ${elemento.nome}`,
-            [pulsanteRimuovi]
+            [pulsanteRimuovi],
+            "Azioni"
         ));
         corpoTabella.appendChild(riga);
     });
@@ -2151,7 +2756,7 @@ async function caricaElencoAcquisti() {
             const messaggio = document.querySelector("#messaggio-acquisto");
 
             for (const rigaAcquisto of acquisto.righe) {
-                const pulsante = creaPulsanteCancellazione(`Riga ${rigaAcquisto.prodotto}`, async () => {
+                const pulsante = creaPulsanteCancellazione(`Cancella riga «${rigaAcquisto.prodotto}»`, async () => {
                     await cancellaRisorsa(
                         `/api/righe-acquisto/${rigaAcquisto.id}`,
                         `Vuoi cancellare definitivamente la riga "${rigaAcquisto.prodotto}" (${rigaAcquisto.quantita} unità)? La giacenza verrà ricalcolata.`,
@@ -2168,7 +2773,7 @@ async function caricaElencoAcquisti() {
                 azioni.push(pulsante);
             }
 
-            const pulsanteAcquisto = creaPulsanteCancellazione("Cancella acquisto", async () => {
+            const pulsanteAcquisto = creaPulsanteCancellazione(`Cancella acquisto del ${formattaDataSenzaConversione(acquisto.data_acquisto)}`, async () => {
                 try {
                     await caricaProdottiPerAcquisto();
                 } catch (errore) {
@@ -2222,7 +2827,8 @@ async function caricaElencoAcquisti() {
             azioni.push(pulsanteAcquisto);
             riga.appendChild(creaCellaAzioniPopup(
                 `acquisto del ${formattaDataSenzaConversione(acquisto.data_acquisto)} da ${acquisto.fornitore}`,
-                azioni
+                azioni,
+                "Azioni"
             ));
 
             corpo.appendChild(riga);
@@ -2380,7 +2986,7 @@ async function caricaElencoVendite() {
 
             if (righeVendita.length > 1) {
                 for (const rigaVendita of righeVendita) {
-                    azioni.push(creaPulsanteCancellazione(`Cancella riga ${rigaVendita.elemento}`, async () => {
+                    azioni.push(creaPulsanteCancellazione(`Cancella riga «${rigaVendita.elemento}»`, async () => {
                         await cancellaRisorsa(
                             `/api/righe-vendita/${rigaVendita.id}`,
                             `Vuoi cancellare definitivamente la riga "${rigaVendita.elemento}" (${rigaVendita.quantita} unità)? La giacenza verrà ricalcolata se è un prodotto.`,
@@ -2397,7 +3003,7 @@ async function caricaElencoVendite() {
                 }
             }
 
-            azioni.push(creaPulsanteCancellazione("Cancella vendita", async () => {
+            azioni.push(creaPulsanteCancellazione(`Cancella vendita del ${formattaDataSenzaConversione(vendita.data_vendita)}`, async () => {
                 await cancellaRisorsa(
                     `/api/vendite/${vendita.id}`,
                     `Vuoi cancellare definitivamente la vendita del ${formattaDataSenzaConversione(vendita.data_vendita)}? Le righe saranno rimosse e la giacenza verrà ricalcolata.`,
@@ -2410,7 +3016,8 @@ async function caricaElencoVendite() {
             }));
             riga.appendChild(creaCellaAzioniPopup(
                 `vendita del ${formattaDataSenzaConversione(vendita.data_vendita)}`,
-                azioni
+                azioni,
+                "Azioni"
             ));
             corpo.appendChild(riga);
         }
@@ -2595,7 +3202,8 @@ function mostraRigheVendita() {
 
         riga.appendChild(creaCellaAzioniPopup(
             `riga vendita ${elemento.nome}`,
-            [pulsanteRimuovi]
+            [pulsanteRimuovi],
+            "Azioni"
         ));
         corpoTabella.appendChild(riga);
     });
@@ -2910,6 +3518,250 @@ function creaSidebarApplicazione() {
     return sidebar;
 }
 
+function creaElencoGuida(elementi) {
+    const elenco = document.createElement("ol");
+    elenco.className = "dashboard-help-list";
+
+    for (const testo of elementi) {
+        const voce = document.createElement("li");
+        voce.textContent = testo;
+        elenco.appendChild(voce);
+    }
+
+    return elenco;
+}
+
+function creaContenutoGuida(contenuto) {
+    if (Array.isArray(contenuto)) {
+        return creaElencoGuida(contenuto);
+    }
+
+    const contenitore = document.createElement("div");
+    contenitore.className = "dashboard-help-sections";
+
+    for (const sezione of contenuto.sezioni || []) {
+        const elementoSezione = document.createElement("section");
+        elementoSezione.className = "dashboard-help-section";
+
+        const titolo = document.createElement("h3");
+        titolo.textContent = sezione.titolo;
+
+        const elenco = document.createElement(sezione.ordinato ? "ol" : "ul");
+        for (const testo of sezione.elenco || []) {
+            const voce = document.createElement("li");
+            voce.textContent = testo;
+            elenco.appendChild(voce);
+        }
+
+        elementoSezione.append(titolo, elenco);
+        contenitore.appendChild(elementoSezione);
+    }
+
+    if (contenuto.nota) {
+        const nota = document.createElement("p");
+        nota.className = "dashboard-help-note";
+        nota.textContent = contenuto.nota;
+        contenitore.appendChild(nota);
+    }
+
+    return contenitore;
+}
+
+function creaGuidaApplicazione(percorso) {
+    let guidaCorrente = guidaPerPercorso(percorso);
+
+    const contenitore = document.createElement("aside");
+    contenitore.className = "dashboard-help";
+    contenitore.setAttribute("aria-label", "Help Center KIND SQL");
+
+    const pulsanteMobile = document.createElement("button");
+    pulsanteMobile.type = "button";
+    pulsanteMobile.className = "dashboard-help-mobile-toggle pulsante-secondario";
+    pulsanteMobile.textContent = "Aiuto";
+    pulsanteMobile.setAttribute("aria-expanded", "false");
+    pulsanteMobile.setAttribute("aria-controls", "pannello-guida-kind-sql");
+
+    const pannello = document.createElement("div");
+    pannello.id = "pannello-guida-kind-sql";
+    pannello.className = "dashboard-help-panel";
+
+    const intestazione = document.createElement("div");
+    intestazione.className = "dashboard-help-heading";
+
+    const etichetta = document.createElement("span");
+    etichetta.className = "dashboard-help-label";
+    etichetta.textContent = "HELP CENTER";
+
+    const titolo = document.createElement("h2");
+    titolo.className = "dashboard-help-title";
+    titolo.textContent = "Guida KIND SQL";
+
+    const contesto = document.createElement("p");
+    contesto.className = "dashboard-help-context";
+
+    intestazione.append(etichetta, titolo, contesto);
+
+    const azioni = document.createElement("div");
+    azioni.className = "dashboard-help-actions";
+
+    const pulsantePrimaVolta = document.createElement("button");
+    pulsantePrimaVolta.type = "button";
+    pulsantePrimaVolta.className = "pulsante-secondario dashboard-help-primary";
+    pulsantePrimaVolta.dataset.guidaTipo = "prima-volta";
+    pulsantePrimaVolta.textContent = "Prima volta nel Gestionale";
+
+    const pulsanteTutorial = document.createElement("button");
+    pulsanteTutorial.type = "button";
+    pulsanteTutorial.className = "pulsante-secondario";
+    pulsanteTutorial.dataset.guidaTipo = "tutorial";
+    pulsanteTutorial.textContent = "Tutorial passo passo";
+
+    const pulsanteRegole = document.createElement("button");
+    pulsanteRegole.type = "button";
+    pulsanteRegole.className = "pulsante-secondario";
+    pulsanteRegole.dataset.guidaTipo = "regole";
+    pulsanteRegole.textContent = "Regole e calcoli";
+
+    const pulsanteModifica = document.createElement("button");
+    pulsanteModifica.type = "button";
+    pulsanteModifica.className = "pulsante-secondario";
+    pulsanteModifica.dataset.guidaTipo = "modifica";
+    pulsanteModifica.textContent = "Modifica: cosa fa?";
+
+    const pulsanteAzioni = document.createElement("button");
+    pulsanteAzioni.type = "button";
+    pulsanteAzioni.className = "pulsante-secondario";
+    pulsanteAzioni.dataset.guidaTipo = "azioni";
+    pulsanteAzioni.textContent = "Azioni: cosa puoi fare?";
+
+    azioni.append(
+        pulsantePrimaVolta,
+        pulsanteTutorial,
+        pulsanteRegole,
+        pulsanteModifica,
+        pulsanteAzioni
+    );
+
+    const dialogo = document.createElement("dialog");
+    dialogo.className = "dashboard-help-dialog";
+    dialogo.setAttribute("aria-labelledby", "titolo-dialogo-guida-kind-sql");
+
+    const dialogoIntestazione = document.createElement("div");
+    dialogoIntestazione.className = "dashboard-help-dialog-heading";
+    const dialogoTitolo = document.createElement("h2");
+    dialogoTitolo.id = "titolo-dialogo-guida-kind-sql";
+    const chiudi = document.createElement("button");
+    chiudi.type = "button";
+    chiudi.className = "pulsante-secondario dashboard-help-close";
+    chiudi.textContent = "Chiudi";
+    dialogoIntestazione.append(dialogoTitolo, chiudi);
+
+    const dialogoContenuto = document.createElement("div");
+    dialogoContenuto.className = "dashboard-help-dialog-content";
+    dialogo.append(dialogoIntestazione, dialogoContenuto);
+
+    const piede = document.createElement("footer");
+    piede.className = "dashboard-help-footer";
+
+    const supporto = document.createElement("div");
+    supporto.className = "dashboard-help-support";
+    const pulsanteHelp = document.createElement("a");
+    pulsanteHelp.className = "pulsante-secondario";
+    pulsanteHelp.textContent = "Help";
+    pulsanteHelp.href = "mailto:gabrigentile05@gmail.com?subject=Richiesta%20di%20assistenza%20KIND%20SQL";
+    pulsanteHelp.setAttribute("aria-label", "Apri una richiesta di assistenza via email");
+    supporto.appendChild(pulsanteHelp);
+
+    const autore = document.createElement("span");
+    autore.className = "dashboard-help-author";
+    autore.textContent = "Developed by Gabriele Gentile";
+
+    const versione = document.createElement("span");
+    versione.className = "dashboard-help-version";
+    versione.textContent = "Versione in caricamento…";
+    piede.append(supporto, autore, versione);
+
+    const aggiornaVersione = async () => {
+        try {
+            const risposta = await fetch("/api/versione", {
+                credentials: "same-origin",
+                cache: "no-store"
+            });
+            const risultato = await risposta.json().catch(() => ({}));
+
+            if (!risposta.ok || typeof risultato.version !== "string" || !risultato.version) {
+                throw new Error("Versione non disponibile.");
+            }
+
+            versione.textContent = `Versione ${risultato.version}`;
+        } catch (errore) {
+            console.error("Errore nel caricamento della versione:", errore);
+            versione.textContent = "Versione non disponibile";
+        }
+    };
+
+    const aggiornaContesto = (nuovoPercorso) => {
+        guidaCorrente = guidaPerPercorso(nuovoPercorso);
+        contesto.textContent = `Indicazioni per: ${guidaCorrente.titolo}`;
+        contenitore.dataset.sezioneGuida = nuovoPercorso;
+        pulsantePrimaVolta.hidden = !["/", "/index.html"].includes(nuovoPercorso);
+        pulsanteModifica.hidden = !percorsiConGuidaModifica.has(nuovoPercorso);
+        pulsanteAzioni.hidden = !percorsiConGuidaAzioni.has(nuovoPercorso);
+        contenitore.classList.remove("guida-aperta");
+        pulsanteMobile.textContent = "Aiuto";
+        pulsanteMobile.setAttribute("aria-expanded", "false");
+    };
+
+    const apriGuida = (tipo) => {
+        const titoli = {
+            "prima-volta": "Prima volta nel Gestionale",
+            tutorial: "Tutorial passo passo",
+            regole: "Regole e calcoli",
+            modifica: "Modifica: cosa fa?",
+            azioni: "Azioni: cosa puoi fare?"
+        };
+        const titoloTipo = titoli[tipo] || "Guida";
+        dialogoTitolo.textContent = `${titoloTipo} — ${guidaCorrente.titolo}`;
+        dialogoContenuto.replaceChildren(
+            creaContenutoGuida(tipo === "prima-volta" ? guidaPrimaVolta : guidaCorrente[tipo])
+        );
+
+        if (typeof dialogo.showModal === "function") {
+            dialogo.showModal();
+        } else {
+            dialogo.setAttribute("open", "");
+        }
+    };
+
+    pulsanteMobile.addEventListener("click", () => {
+        const aperto = contenitore.classList.toggle("guida-aperta");
+        pulsanteMobile.textContent = aperto ? "Chiudi aiuto" : "Aiuto";
+        pulsanteMobile.setAttribute("aria-expanded", String(aperto));
+    });
+
+    for (const pulsante of azioni.querySelectorAll("button[data-guida-tipo]")) {
+        pulsante.addEventListener("click", () => apriGuida(pulsante.dataset.guidaTipo));
+    }
+
+    chiudi.addEventListener("click", () => dialogo.close());
+    dialogo.addEventListener("click", (evento) => {
+        if (evento.target === dialogo) {
+            dialogo.close();
+        }
+    });
+
+    pannello.append(intestazione, azioni);
+    pannello.appendChild(piede);
+    contenitore.append(pulsanteMobile, pannello, dialogo);
+    aggiornaContesto(percorso);
+    aggiornaVersione();
+
+    return {
+        elemento: contenitore,
+        aggiorna: aggiornaContesto
+    };
+}
+
 function aggiornaSezioneAttiva(percorso) {
     if (!shellApplicazione) {
         return;
@@ -2963,6 +3815,7 @@ async function caricaSezioneApplicazione(percorso, opzioni = {}) {
         return;
     }
 
+    chiudiPopupModifica();
     caricamentoSezioneInCorso = true;
     shellApplicazione.main.setAttribute("aria-busy", "true");
     shellApplicazione.content.classList.add("dashboard-section-loading");
@@ -2983,6 +3836,7 @@ async function caricaSezioneApplicazione(percorso, opzioni = {}) {
 
         shellApplicazione.content.replaceChildren(contenuto.frammento);
         aggiornaNomeSaloneVisibile();
+        shellApplicazione.guida.aggiorna(percorso);
         shellApplicazione.main.classList.toggle("dashboard-home", percorso === "/");
         shellApplicazione.main.classList.toggle("dashboard-page-shell", percorso !== "/");
         document.title = contenuto.titolo;
@@ -3053,10 +3907,11 @@ function creaShellApplicazione() {
 
     main.classList.add("dashboard-main");
     main.classList.add(paginaHome ? "dashboard-home" : "dashboard-page-shell");
-    main.replaceChildren(creaSidebarApplicazione(), contenuto);
+    const guida = creaGuidaApplicazione(window.location.pathname);
+    main.replaceChildren(creaSidebarApplicazione(), contenuto, guida.elemento);
     main.addEventListener("click", gestisciNavigazioneApplicazione);
 
-    shellApplicazione = { main, content: contenuto };
+    shellApplicazione = { main, content: contenuto, guida };
 }
 
 function inizializzaFormLogin() {
@@ -3167,10 +4022,6 @@ async function inizializzaPaginaVisibile() {
     if (formProdotto && formProdotto.dataset.inizializzato !== "true") {
         formProdotto.dataset.inizializzato = "true";
         formProdotto.addEventListener("submit", gestisciFormProdotto);
-        document.querySelector("#annulla-modifica-prodotto")?.addEventListener(
-            "click",
-            annullaModificaProdotto
-        );
     }
 
     const formRettificaMagazzino = document.querySelector("#form-rettifica-magazzino");
@@ -3480,6 +4331,7 @@ function inizializzaGestoreTabelle() {
 
     document.addEventListener("keydown", (evento) => {
         if (evento.key === "Escape") {
+            chiudiPopupModifica();
             chiudiPopupAzioni();
             chiudiPopupCella();
             return;
