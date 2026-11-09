@@ -457,8 +457,12 @@ tbody tr:hover td {
 }
 
 .movimento-vendita td {
-    background: var(--verde-chiaro);
-    color: var(--verde-scuro);
+    background: #e5f6eb;
+    color: #145c38;
+}
+
+.movimento-vendita:hover td {
+    background: #e5f6eb;
 }
 
 .movimento-acquisto td {
@@ -466,8 +470,25 @@ tbody tr:hover td {
     color: var(--rosso);
 }
 
+.movimento-acquisto:hover td {
+    background: var(--rosso-chiaro);
+}
+
+.movimento-cliente td {
+    background: #e8f2ff;
+    color: #18558c;
+}
+
+.movimento-cliente:hover td {
+    background: #e8f2ff;
+}
+
 .prodotto-da-riordinare td {
-    background: var(--ambra-chiaro);
+    background: #fff7c7;
+}
+
+.prodotto-da-riordinare:hover td {
+    background: #fff7c7;
 }
 
 .prodotto-da-riordinare td:last-child {

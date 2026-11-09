@@ -1367,6 +1367,8 @@ async function caricaMovimentiRecenti() {
                 riga.classList.add("movimento-vendita");
             } else if (movimento.operazione === "Acquisto") {
                 riga.classList.add("movimento-acquisto");
+            } else if (movimento.operazione === "Registrazione cliente") {
+                riga.classList.add("movimento-cliente");
             }
 
             const valori = [
